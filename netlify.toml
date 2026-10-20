@@ -1,0 +1,6 @@
+# Both sites deploy from this repo. Set each site's publish directory in the Netlify UI:
+#   storied-buttercream-0abf9a -> scan-app
+#   jade-dango-20f096          -> leaderboard
+# No build command for either. This file only pins that there is no build step.
+[build]
+  command = ""

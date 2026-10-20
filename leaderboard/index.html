@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#15171B">
+<title>QMT Leaderboard</title>
+<style>
+  :root {
+    --ink: #15171B; --ink-2: #22252B; --paper: #F7F5F0; --rule: #34383F;
+    --orange: #FF6B1A; --green: #2FA84F; --muted: #8A8F98;
+    --gold: #F5B01E; --silver: #C9CDD4; --bronze: #C97B3D;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: var(--ink); color: var(--paper);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+  #wrap { max-width: 1100px; margin: 0 auto; padding: 3vh 3vw; min-height: 100%; display: flex; flex-direction: column; }
+
+  header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+           border-bottom: 2px solid var(--rule); padding-bottom: 2vh; margin-bottom: 3vh; }
+  .brand { font-size: clamp(22px, 3.2vw, 40px); font-weight: 800; letter-spacing: 3px; }
+  .brand span { color: var(--orange); }
+  .weekline { font-size: clamp(13px, 1.6vw, 20px); color: var(--muted); font-weight: 700; letter-spacing: 1px; }
+  .verline { font-size: clamp(10px, 1vw, 13px); color: #5a5e66; font-weight: 700; letter-spacing: 2px; margin-top: 4px; }
+  .weekbox { display: flex; align-items: center; gap: 10px; }
+  .weeksel {
+    background: var(--ink-2); color: var(--paper); border: 1px solid var(--rule);
+    border-radius: 8px; font-size: clamp(13px, 1.5vw, 19px); font-weight: 700;
+    padding: 8px 12px; letter-spacing: 1px; cursor: pointer;
+  }
+  input[type="date"].weeksel { letter-spacing: 0; color-scheme: dark; }
+  #customWrap { display: inline-flex; gap: 8px; align-items: center; }
+  .weekline b { color: var(--paper); }
+
+  /* podium */
+  .podium { display: grid; grid-template-columns: 1fr 1.15fr 1fr; gap: 2vw; align-items: end; margin-bottom: 3.5vh; }
+  .pod {
+    background: var(--ink-2); border: 1px solid var(--rule); border-radius: 14px;
+    text-align: center; padding: 2.2vh 1vw 2vh; position: relative; overflow: hidden;
+  }
+  .pod::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 6px; }
+  .pod.p1 { padding-top: 3.4vh; }
+  .pod.p1::before { background: var(--gold); }
+  .pod.p2::before { background: var(--silver); }
+  .pod.p3::before { background: var(--bronze); }
+  .medal { font-size: clamp(22px, 2.6vw, 34px); margin-bottom: .6vh; }
+  .pod .nm { font-size: clamp(17px, 2.2vw, 30px); font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 8px; }
+  .pod .pts { font-size: clamp(30px, 4.6vw, 64px); font-weight: 800; margin: .6vh 0 .2vh;
+              font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .pod.p1 .pts { color: var(--gold); }
+  .pod.p2 .pts { color: var(--silver); }
+  .pod.p3 .pts { color: var(--bronze); }
+  .pod .sub { font-size: clamp(11px, 1.2vw, 15px); color: var(--muted); }
+
+  /* the rest of the field */
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 1.4vh 10px; border-bottom: 1px solid #24272d; font-size: clamp(15px, 1.9vw, 25px); }
+  td.rank { color: var(--muted); font-weight: 800; width: 2.2em; }
+  td.nm { font-weight: 700; }
+  td.pts { text-align: right; font-weight: 800; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  td.sub { text-align: right; color: var(--muted); font-size: clamp(11px, 1.3vw, 16px); width: 9em; }
+
+  /* v11: "scanned every day" (weekly Nectar special) */
+  td.nct { text-align: right; font-weight: 800; white-space: nowrap; width: 8.5em; font-size: clamp(13px, 1.6vw, 21px); }
+  td.nct.yes, .pod .nct.yes, .nct-chip.yes { color: var(--green); }
+  td.nct.no, .pod .nct.no, .nct-chip.no { color: #ff6b5e; }
+  td.nct.na, .pod .nct.na, .nct-chip.na { color: var(--muted); }
+  td.hd { color: var(--muted); font-size: clamp(10px, 1.1vw, 13px); font-weight: 800; letter-spacing: 1px;
+          text-transform: uppercase; border-bottom: 1px solid var(--rule); padding: .4vh 10px; text-align: right; }
+  .pod .nct { margin-top: .5vh; font-size: clamp(11px, 1.3vw, 16px); font-weight: 800; }
+  .nct-chip { font-size: clamp(12px, 1.3vw, 17px); font-weight: 800; margin: 0 14px; white-space: nowrap; }
+
+  /* rate view */
+  td.rate { text-align: right; font-weight: 800; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  td.rate.hit { color: var(--green); }
+  .rate-note { text-align: center; color: #5a5e66; padding: 1.5vh 0; font-size: clamp(11px, 1.2vw, 14px); }
+
+  /* team goal (telethon) view */
+  .team-wrap { text-align: center; padding: 4vh 0 2vh; }
+  .team-kicker { color: var(--muted); font-weight: 800; letter-spacing: 3px; font-size: clamp(12px, 1.4vw, 18px); }
+  .team-pct { font-size: clamp(64px, 13vw, 180px); font-weight: 800; line-height: 1.05;
+              font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--orange); }
+  .team-pct.hit { color: var(--green); }
+  .team-sub { font-size: clamp(16px, 2.2vw, 30px); font-weight: 700; margin-top: 1vh; }
+  .team-sub b { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .team-bar-wrap { position: relative; margin: 5vh 2vw 6vh; }
+  .team-bar { height: clamp(26px, 4.5vh, 46px); background: var(--ink-2); border: 1px solid var(--rule);
+              border-radius: 999px; overflow: hidden; }
+  .team-fill { height: 100%; background: linear-gradient(90deg, var(--orange), #ff8a47); border-radius: 999px;
+               transition: width 1s ease; }
+  .team-fill.hit { background: linear-gradient(90deg, var(--green), #45c96a); }
+  .tier { position: absolute; top: -1.2em; transform: translateX(-50%); color: var(--muted);
+          font-size: clamp(11px, 1.3vw, 16px); font-weight: 800; }
+  .tier::after { content: ""; position: absolute; left: 50%; top: 1.35em; width: 2px;
+                 height: clamp(30px, 5.5vh, 54px); background: var(--rule); }
+  .tier.reached { color: var(--green); }
+  .tier.reached::after { background: var(--green); }
+
+  /* details view */
+  .det-person { border-bottom: 1px solid #24272d; padding: 1.6vh 4px; }
+  .det-head { display: flex; align-items: baseline; gap: 14px; }
+  .det-head .rank { color: var(--muted); font-weight: 800; min-width: 1.6em; font-size: clamp(15px, 1.9vw, 25px); }
+  .det-head .nm { font-weight: 800; font-size: clamp(16px, 2.1vw, 27px); flex: 1; }
+  .det-head .pts { font-weight: 800; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: clamp(16px, 2.1vw, 27px); color: var(--orange); }
+  .det-st { display: flex; justify-content: space-between; padding: 0.6vh 0 0.6vh 2.4em; color: var(--muted); font-size: clamp(13px, 1.5vw, 19px); }
+  .det-st b { color: var(--paper); font-weight: 700; }
+  .det-st .u { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .det-st.manual b { color: var(--orange); font-style: italic; }
+  .det-st.manual small { color: #5a5e66; font-weight: 600; margin-left: 8px; }
+
+  footer { margin-top: auto; padding-top: 2.5vh; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+           color: var(--muted); font-size: clamp(11px, 1.3vw, 16px); font-weight: 700; letter-spacing: 1px; }
+  .prize { color: var(--orange); }
+
+  .empty { text-align: center; color: var(--muted); padding: 8vh 0; font-size: clamp(16px, 2vw, 24px); line-height: 1.7; }
+  .err { background: rgba(217,72,43,.14); border: 1px solid #D9482B; color: #ff9d87;
+         border-radius: 10px; padding: 14px; margin: 20px 0; line-height: 1.6; }
+  textarea { width: 100%; min-height: 90px; border-radius: 10px; border: 1px solid var(--rule);
+             background: var(--ink-2); color: var(--paper); font-size: 14px; padding: 12px; margin-top: 10px;
+             font-family: ui-monospace, monospace; }
+  button { background: var(--orange); color: #fff; border: 0; border-radius: 10px; min-height: 50px;
+           font-size: 16px; font-weight: 800; width: 100%; margin-top: 10px; cursor: pointer; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <header>
+    <div>
+      <div class="brand">QMT <span>LEADERBOARD</span></div>
+      <div class="verline" id="verline">page v3</div>
+    </div>
+    <div class="weekbox">
+      <select id="periodSel" class="weeksel" style="display:none">
+        <option value="week">Weekly</option>
+        <option value="day">Daily</option>
+      </select>
+      <select id="shiftSel" class="weeksel" style="display:none">
+        <option value="all">All shifts</option>
+        <option value="day">Day shift</option>
+        <option value="night">Night shift</option>
+      </select>
+      <select id="weekSel" class="weeksel" style="display:none"></select>
+      <span id="customWrap" style="display:none">
+        <input type="date" id="fromDate" class="weeksel">
+        <input type="date" id="toDate" class="weeksel">
+        <button id="applyRange" class="weeksel">Go</button>
+      </span>
+      <select id="viewSel" class="weeksel" style="display:none">
+        <option value="board">Standings</option>
+        <option value="rate" hidden>Rate</option>
+        <option value="details">Details</option>
+        <option value="team" id="teamOpt" hidden>Team goal</option>
+      </select>
+      <div class="weekline" id="weekline">Loading&#8230;</div>
+    </div>
+  </header>
+  <div id="board"><div class="empty">Loading this week&#8217;s standings&#8230;</div></div>
+  <footer>
+    <div class="prize">&#127942; TOP 3 THIS WEEK WIN</div>
+    <div id="stamp"></div>
+  </footer>
+</div>
+
+<script>
+const store = {
+  get(k){ try { return localStorage.getItem(k); } catch(e){ return null; } },
+  set(k,v){ try { localStorage.setItem(k,v); } catch(e){} },
+};
+
+const BUILT_IN_API = "https://script.google.com/macros/s/AKfycbzfENikUcV-2mjQeTDqovKEsX4ihj2WpgZTKB6L_HLxnHyUefxT-fPXw_AYNivnhZRbOg/exec";
+
+let API_URL = null;
+let currentWeek = 0;        // 0 = this week; a number, or "custom"
+let customFrom = null, customTo = null;
+let currentPeriod = "week"; // "week" | "day"
+let viewMode = "team";      // default screen: the team goal (falls back to standings)
+let viewShift = "all";      // "all" | "day" | "night"
+let lastData = null;
+
+function setupScreen(msg){
+  document.getElementById("board").innerHTML =
+    '<div class="err">' + (msg || "This screen needs the Apps Script Web App URL (same one the scan app uses).") + '</div>' +
+    '<textarea id="apiIn" placeholder="https://script.google.com/macros/s/\u2026/exec"></textarea>' +
+    '<button id="go">Connect</button>';
+  document.getElementById("go").onclick = () => {
+    const u = document.getElementById("apiIn").value.trim().replace(/\s+/g, "");
+    if (!u) return;
+    store.set("qmt_api", u);
+    store.set("qmt_api_custom", "1");
+    API_URL = u;
+    refresh();
+  };
+}
+
+function medal(i){ return ["\u{1F947}","\u{1F948}","\u{1F949}"][i] || ""; }
+function fmtPts(p){ return (Math.round(p * 100) / 100).toLocaleString(); }
+
+async function refresh(){
+  if (!API_URL) return;
+  try {
+    const q = (currentWeek === "custom" && customFrom && customTo)
+      ? "?board=1&from=" + customFrom + "&to=" + customTo
+      : "?board=1&week=" + currentWeek + "&period=" + currentPeriod;
+    const res = await fetch(API_URL + q);
+    const data = await res.json();
+    if (!data.ok || data.app !== "qmt-floor-scan") throw new Error("bad response");
+    // Old deployment detector: the v2 script always includes a rows array.
+    // If it's missing, the URL is still serving the pre-leaderboard code.
+    if (!Array.isArray(data.rows)){
+      document.getElementById("board").innerHTML =
+        '<div class="err"><b>The script at this URL is running the OLD version.</b><br><br>' +
+        'Pasting new code isn\u2019t enough \u2014 Apps Script keeps serving the old one until you publish it:<br><br>' +
+        '1. Open the Sheet \u2192 Extensions \u2192 Apps Script<br>' +
+        '2. Deploy \u2192 <b>Manage deployments</b> \u2192 pencil icon \u2192 Version: <b>New version</b> \u2192 Deploy<br><br>' +
+        'The URL stays the same \u2014 this screen and the phones keep working. Then this board updates on its own.</div>';
+      return;
+    }
+    render(data);
+  } catch(e){
+    // keep last good board on transient errors; only show setup if we've never rendered
+    if (!document.querySelector(".podium") && !document.querySelector("table")){
+      setupScreen("Couldn\u2019t reach the script. Check the URL and that the deployment allows Anyone.");
+    }
+  }
+}
+
+function render(data){
+  lastData = data;
+  document.getElementById("verline").textContent =
+    "page v12" + (data.v ? " \u00B7 script v" + data.v : "");
+  const sel = document.getElementById("weekSel");
+  const per = document.getElementById("periodSel");
+  const det = document.getElementById("viewSel");
+  const v10 = Number(data.v) >= 10;
+  const v13 = Number(data.v) >= 13;
+  const rateOk = Number(data.v) >= 12 && data.hasTargets;
+  const rateStandings = v13 && data.hasTargets;   // standings ranked by rate
+  const nctOk = Number(data.v) >= 24 && !!data.nectarWeek;   // "scanned every day" column
+  per.style.display = (v10 && currentWeek !== "custom") ? "" : "none";
+  det.style.display = v10 ? "" : "none";
+  const rateOpt = det.querySelector('option[value="rate"]');
+  if (rateOpt){ rateOpt.hidden = v13; rateOpt.disabled = !rateOk || v13; }
+  if ((v13 || !rateOk) && viewMode === "rate") viewMode = "board";
+  const teamOpt = document.getElementById("teamOpt");
+  const teamOk = Number(data.v) >= 14 && data.team;
+  if (teamOpt){ teamOpt.hidden = !teamOk; teamOpt.disabled = !teamOk; }
+  if (!teamOk && viewMode === "team") viewMode = "board";
+  const shiftSel = document.getElementById("shiftSel");
+  const shiftOk = Number(data.v) >= 18 && (data.rows || []).some(r => r.shift);
+  shiftSel.style.display = shiftOk ? "" : "none";
+  if (shiftOk) shiftSel.value = viewShift;
+  if (v10){ per.value = currentPeriod; det.value = viewMode; }
+  const customWrap = document.getElementById("customWrap");
+  const isCustom = currentWeek === "custom";
+  if (Array.isArray(data.weeks) && data.weeks.length && (currentPeriod === "week" || isCustom)){
+    const want = data.weeks.map(w => w.offset + "|" + w.label).join(";") + ";custom";
+    if (sel.dataset.built !== want){
+      sel.innerHTML = "";
+      data.weeks.forEach(w => {
+        const o = document.createElement("option");
+        o.value = w.offset;
+        o.textContent = (w.offset === 0 ? "This week \u00B7 " : "") + w.label;
+        sel.appendChild(o);
+      });
+      const c = document.createElement("option");
+      c.value = "custom";
+      c.textContent = "Custom range\u2026";
+      sel.appendChild(c);
+      sel.dataset.built = want;
+    }
+    sel.value = isCustom ? "custom" : String(data.weekOffset || 0);
+    sel.style.display = "";
+    customWrap.style.display = isCustom ? "" : "none";
+    document.getElementById("weekline").innerHTML =
+      (isCustom && data.period === "custom") ? "<b>" + (data.label || "") + "</b>" : "";
+  } else if (currentPeriod === "day"){
+    customWrap.style.display = "none";
+    sel.style.display = "none";
+    document.getElementById("weekline").innerHTML = "<b>" + (data.label || data.week || "Today") + "</b>";
+  } else {
+    sel.style.display = "none";
+    document.getElementById("weekline").innerHTML = "WEEK OF <b>" + (data.label || data.week) + "</b>";
+  }
+  document.getElementById("stamp").textContent =
+    "UPDATED " + (data.updated || "") + " \u00B7 SCORING: " + String(data.basis || "").toUpperCase();
+
+  if (viewMode === "details" && v10){ renderDetails(data); return; }
+  if (viewMode === "team" && teamOk){ renderTeam(data); return; }
+  if (viewMode === "rate" && rateOk && !v13){ renderRate(data); return; }
+
+  let rows = filterByShift(data.rows || []);
+  if (rateStandings){
+    rows.sort((a, b) => {
+      const ra = typeof a.rate === "number" ? a.rate : -1;
+      const rb = typeof b.rate === "number" ? b.rate : -1;
+      if (rb !== ra) return rb - ra;
+      if (b.points !== a.points) return b.points - a.points;
+      return b.units - a.units;
+    });
+  }
+  const big = r => rateStandings
+    ? (r.scans === 0 ? "0%" : ((typeof r.rate === "number" && r.rate > 0) ? r.rate.toLocaleString() + "%" : "\u2014"))
+    : fmtPts(r.points);
+  const board = document.getElementById("board");
+
+  if (!rows.length){
+    board.innerHTML = currentPeriod === "day"
+      ? '<div class="empty">No scans yet today.<br>First scan takes the lead &#8212; go get it.</div>'
+      : (currentWeek
+        ? '<div class="empty">No scans recorded that week.</div>'
+        : '<div class="empty">No scans yet this week.<br>First scan takes the lead &#8212; go get it.</div>');
+    return;
+  }
+
+  let html = "";
+
+  // Podium: render 2nd, 1st, 3rd so the winner sits center and tallest
+  const podOrder = [1, 0, 2];
+  html += '<div class="podium">';
+  podOrder.forEach(i => {
+    const r = rows[i];
+    const cls = "p" + (i + 1);
+    if (r){
+      html += '<div class="pod ' + cls + '">' +
+        '<div class="medal">' + medal(i) + '</div>' +
+        '<div class="nm">' + esc(r.name) + '</div>' +
+        '<div class="pts">' + big(r) + '</div>' +
+        '<div class="sub">' + r.scans + ' jobs \u00B7 ' + r.units.toLocaleString() + ' units</div>' +
+        (nctOk ? '<div class="nct ' + nctInfo(r).cls + '">Scanned every day: ' + nctInfo(r).txt + '</div>' : '') +
+        '</div>';
+    } else {
+      html += '<div class="pod ' + cls + '" style="opacity:.35">' +
+        '<div class="medal">' + medal(i) + '</div>' +
+        '<div class="nm">\u2014</div><div class="pts">0</div><div class="sub">up for grabs</div></div>';
+    }
+  });
+  html += '</div>';
+
+  // Everyone else — the full roster, no cap
+  const rest = rows.slice(3);
+  if (rest.length){
+    html += '<table>';
+    if (nctOk) html += '<tr><td class="hd" colspan="5">Scanned every day?</td></tr>';
+    rest.forEach((r, i) => {
+      html += '<tr>' +
+        '<td class="rank">' + (i + 4) + '</td>' +
+        '<td class="nm">' + esc(r.name) + '</td>' +
+        '<td class="sub">' + r.scans + ' jobs \u00B7 ' + r.units.toLocaleString() + ' units</td>' +
+        '<td class="pts">' + big(r) + '</td>' +
+        (nctOk ? '<td class="nct ' + nctInfo(r).cls + '">' + nctInfo(r).txt + '</td>' : '') +
+        '</tr>';
+    });
+    html += '</table>';
+  }
+
+  const scanned = rows.filter(r => r.scans > 0).length;
+  if (rows.length){
+    html += '<div class="rate-note"><b>Scanning this ' + (currentPeriod === "day" ? "day" : "week") + ': ' +
+      scanned + ' of ' + rows.length + '</b>' +
+      (viewShift !== "all" ? ' on this shift' : '') + '</div>';
+  }
+  if (rateStandings){
+    html += '<div class="rate-note">% of shift standard' +
+      (currentPeriod === "day"
+        ? ' \u00B7 100% = one on-target 10-hour shift'
+        : (data.rateDays ? ' \u00B7 prorated over ' + data.rateDays + ' workday' + (data.rateDays > 1 ? 's' : '') + ' so far' : '')) +
+      ' \u00B7 stations without a Target/shift don\u2019t count</div>';
+  }
+
+  if (nctOk){
+    html += '<div class="rate-note"><b>Scanned every day:</b> Nectar week ' + esc(data.nectarWeek.label) +
+      ' \u00B7 Yes = scanned on every day you worked \u00B7 excused days don\u2019t count' +
+      (data.nectarWeek.scheduleOk ? '' : ' \u00B7 schedule unavailable') + '</div>';
+  }
+
+  board.innerHTML = html;
+}
+
+function filterByShift(rows){
+  if (viewShift === "all") return rows.slice();
+  return rows.filter(r => (r.shift || "").toLowerCase().charAt(0) === viewShift.charAt(0));
+}
+
+/* "Scanned every day" cell: Yes / No / dash (nothing to judge yet, or exempt) */
+function nctInfo(r){
+  const n = r && r.nectar;
+  if (!n || n.status === "na") return { cls: "na", txt: "\u2014", long: "\u2014" };
+  const d = " (" + n.scanned + " of " + n.days + " days)";
+  return n.status === "yes" ? { cls: "yes", txt: "Yes", long: "Yes" + d } : { cls: "no", txt: "No", long: "No" + d };
+}
+
+function esc(s){
+  return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+}
+
+/* Rate view: everyone ranked by % of shift standard. 100 = one full
+   on-target 10-hour shift of output (per day); weekly totals run higher. */
+function renderRate(data){
+  const rows = (data.rows || []).filter(r => typeof r.rate === "number" && r.rate > 0)
+    .slice().sort((a, b) => b.rate - a.rate);
+  const board = document.getElementById("board");
+  if (!rows.length){
+    board.innerHTML = '<div class="empty">No rated output yet \u2014 set Target/shift values in the Points tab.</div>';
+    return;
+  }
+  let html = '<table>';
+  rows.forEach((r, i) => {
+    const medal = ["\u{1F947}","\u{1F948}","\u{1F949}"][i] || "";
+    html += '<tr>' +
+      '<td class="rank">' + (i + 1) + '</td>' +
+      '<td class="nm">' + (medal ? medal + " " : "") + esc(r.name) + '</td>' +
+      '<td class="sub">' + r.scans + ' jobs \u00B7 ' + r.units.toLocaleString() + ' units</td>' +
+      '<td class="rate' + (r.rate >= 100 ? " hit" : "") + '">' + r.rate.toLocaleString() + '%</td>' +
+      '</tr>';
+  });
+  html += '</table>';
+  html += '<div class="rate-note">% of shift standard \u00B7 100% = one full on-target 10-hour shift \u00B7 only stations with a Target/shift count</div>';
+  board.innerHTML = html;
+}
+
+/* Team goal (telethon) view: whole plant vs the weekly Label-and-Ship goal */
+function renderTeam(data){
+  const t = data.team;
+  const board = document.getElementById("board");
+  if (!t || !t.goal){
+    board.innerHTML = '<div class="empty">Set the weekly team goal in the Points tab (cell E4).</div>';
+    return;
+  }
+  const pct = t.pct;
+  const hit = pct >= 100;
+  const scaleMax = 125;                          // bar runs 0–125%
+  const fillPct = Math.max(0, Math.min(pct / scaleMax * 100, 100));
+  const tiers = [100, 110, 120];
+  let marks = "";
+  tiers.forEach(v => {
+    marks += '<div class="tier' + (pct >= v ? " reached" : "") + '" style="left:' + (v / scaleMax * 100) + '%">' + v + '%</div>';
+  });
+  board.innerHTML =
+    '<div class="team-wrap">' +
+      '<div class="team-kicker">TEAM GOAL \u00B7 BOOKS SHIPPED THIS WEEK</div>' +
+      '<div class="team-pct' + (hit ? " hit" : "") + '">' + pct.toLocaleString() + '%</div>' +
+      '<div class="team-sub"><b>' + t.units.toLocaleString() + '</b> of <b>' + t.goal.toLocaleString() + '</b> books through Label and Ship</div>' +
+      '<div class="team-bar-wrap">' + marks +
+        '<div class="team-bar"><div class="team-fill' + (hit ? " hit" : "") + '" style="width:' + fillPct + '%"></div></div>' +
+      '</div>' +
+      '<div class="rate-note">Hit the tiers together \u2014 100% \u00B7 110% \u00B7 120% \u2014 bonuses at each level</div>' +
+    '</div>';
+}
+
+/* Details view: every person, with units per station */
+function renderDetails(data){
+  const nctOk = Number(data.v) >= 24 && !!data.nectarWeek;
+  const rows = filterByShift(data.rows || []).slice().sort((a, b) => {
+    const ra = typeof a.rate === "number" ? a.rate : -1;
+    const rb = typeof b.rate === "number" ? b.rate : -1;
+    if (rb !== ra) return rb - ra;                        // highest % first
+    if (b.points !== a.points) return b.points - a.points;
+    return b.units - a.units;
+  });
+  const board = document.getElementById("board");
+  if (!rows.length){
+    board.innerHTML = '<div class="empty">Nothing to break down ' +
+      (currentPeriod === "day" ? "today" : "for this week") + ' yet.</div>';
+    return;
+  }
+  let html = "";
+  rows.forEach((r, i) => {
+    html += '<div class="det-person">' +
+      '<div class="det-head">' +
+        '<span class="rank">' + (i + 1) + '</span>' +
+        '<span class="nm">' + esc(r.name) + '</span>' +
+        (nctOk ? '<span class="nct-chip ' + nctInfo(r).cls + '">Scanned every day: ' + nctInfo(r).long + '</span>' : '') +
+        '<span class="pts">' + ((typeof r.rate === "number" && r.rate > 0) ? r.rate.toLocaleString() + "%" : fmtPts(r.points)) + '</span>' +
+      '</div>';
+    // v12: for anyone marked No, say exactly which days were worked and which had no scan
+    if (nctOk && r.nectar && r.nectar.status === "no" && (r.nectar.missed || []).length){
+      html += '<div class="det-st"><span>Days worked: ' + esc((r.nectar.worked || []).join(", ")) + '</span>' +
+        '<span class="u">Missed: <b>' + esc(r.nectar.missed.join(", ")) + '</b></span></div>';
+    }
+    (r.stations || []).forEach(s => {
+      html += '<div class="det-st">' +
+        '<span><b>' + esc(s.station) + '</b></span>' +
+        '<span class="u">' + s.units.toLocaleString() + ' units \u00B7 ' + s.scans + ' jobs' +
+        (typeof s.rate === "number" && s.rate > 0 ? ' \u00B7 ' + s.rate.toLocaleString() + '%' : '') + '</span>' +
+        '</div>';
+    });
+    (r.manuals || []).forEach(m => {
+      html += '<div class="det-st manual">' +
+        '<span><b>\u270E ' + esc(m.activity) + '</b><small>appr. ' + esc(m.approver || "\u2014") + '</small></span>' +
+        '<span class="u">' + m.hours + ' hrs' +
+        (typeof m.rate === "number" && m.rate > 0 ? ' \u00B7 ' + m.rate.toLocaleString() + '%' : '') + '</span>' +
+        '</div>';
+    });
+    html += '</div>';
+  });
+  board.innerHTML = html;
+}
+
+/* TV auto-scroll: when the roster is taller than the screen, crawl down
+   slowly, dwell at the bottom, snap back to the top, repeat. Touching or
+   scrolling manually pauses it for 30 seconds. Does nothing if it all fits. */
+(function autoScroll(){
+  let userPauseUntil = 0;
+  let holdUntil = Date.now() + 8000;         // let people read the podium first
+  let jumpScheduled = false;
+  ["wheel","touchstart","mousedown","keydown"].forEach(ev =>
+    window.addEventListener(ev, () => { userPauseUntil = Date.now() + 30000; }, { passive: true }));
+  setInterval(() => {
+    const max = document.documentElement.scrollHeight - window.innerHeight;
+    if (max <= 4) return;                    // everything fits — stay put
+    if (Date.now() < Math.max(holdUntil, userPauseUntil)) return;
+    if (window.scrollY >= max - 2){
+      if (!jumpScheduled){
+        jumpScheduled = true;
+        holdUntil = Date.now() + 9000;       // dwell at the bottom...
+        setTimeout(() => { window.scrollTo(0, 0); jumpScheduled = false; }, 4000); // ...then top
+      }
+      return;
+    }
+    window.scrollBy(0, 1);                   // ~20 px/sec: slow enough to read
+  }, 50);
+})();
+
+(function boot(){
+  // Accept the URL via #hash (share link), otherwise reuse the scan app's saved URL
+  const hash = decodeURIComponent(location.hash.slice(1));
+  if (/^https:\/\/script\.google\.com\/(a\/macros\/[^/]+\/|macros\/)/.test(hash)){
+    store.set("qmt_api", hash);
+    store.set("qmt_api_custom", "1");
+    history.replaceState(null, "", location.pathname);
+  }
+  const sel = document.getElementById("weekSel");
+  sel.addEventListener("change", () => {
+    if (sel.value === "custom"){
+      currentWeek = "custom";
+      document.getElementById("customWrap").style.display = "";
+      return;   // wait for dates + Go
+    }
+    currentWeek = parseInt(sel.value, 10) || 0;
+    document.getElementById("customWrap").style.display = "none";
+    refresh();
+  });
+  document.getElementById("applyRange").addEventListener("click", () => {
+    const f = document.getElementById("fromDate").value;
+    const t = document.getElementById("toDate").value;
+    if (!f || !t) return;
+    customFrom = f; customTo = t;
+    currentWeek = "custom";
+    refresh();
+  });
+  const per = document.getElementById("periodSel");
+  per.addEventListener("change", () => {
+    currentPeriod = per.value === "day" ? "day" : "week";
+    if (currentPeriod === "day") currentWeek = 0;
+    refresh();
+  });
+  const shiftSel = document.getElementById("shiftSel");
+  shiftSel.addEventListener("change", () => {
+    viewShift = shiftSel.value;
+    if (lastData) render(lastData); else refresh();
+  });
+  const det = document.getElementById("viewSel");
+  det.addEventListener("change", () => {
+    viewMode = det.value;
+    if (lastData) render(lastData); else refresh();
+    window.scrollTo(0, 0);
+  });
+
+  API_URL = store.get("qmt_api");
+  if (BUILT_IN_API && !store.get("qmt_api_custom") && API_URL !== BUILT_IN_API){
+    API_URL = BUILT_IN_API;
+    store.set("qmt_api", BUILT_IN_API);
+  }
+  if (!API_URL){ setupScreen(); return; }
+  refresh();
+  setInterval(refresh, 60000);   // live-ish: updates within a minute of a scan
+})();
+</script>
+</body>
+</html>
