@@ -31,5 +31,13 @@ First-time permissions (schedule read, email) still need one manual `Run` in the
 ## Release checklist
 1. Bump version stamps (app `vNN`, page `page vNN`, script `v: NN` everywhere + header comment).
 2. `node -e "new Function(require('fs').readFileSync('apps-script/Code.gs','utf8'))"` passes.
-3. Script first, then page (the page gates new fields on `data.v`).
-4. Check the TV reads `page vX · script vY`.
+3. `node test/regression.js` passes (or the commit says which boards change and why).
+4. Script first, then page (the page gates new fields on `data.v`).
+5. Check the TV reads `page vX · script vY`.
+
+## Triggers (Apps Script editor → clock icon)
+| Function | Schedule | Since |
+|---|---|---|
+| `reconcilePending_` | every 15 min | v6 — **confirm it exists** (see BACKLOG) |
+| `sendCoachingEmail_` | Mondays 6–7 am | v16 |
+| `housekeeping_` | every hour | v28 — add when deploying v28 |

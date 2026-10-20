@@ -1,19 +1,46 @@
 # Backlog (as of Oct 19 2026)
 
-## Next: v28 performance (board loads too slowly)
-Per request today the script reads all ~26k Scans rows, opens the schedule workbook twice,
-and runs tab-seeding housekeeping. Plan, in payoff order:
-1. Read only the Scans rows inside the viewed window (rows are appended in time order: find the
-   first row ≥ window start by reading col A, or binary search; fall back to a full read if order breaks).
-2. Cache the finished `buildLeaderboard_` JSON in `CacheService` for 60 s keyed by
-   (week, period, from, to); invalidate on doPost is optional.
-3. Open the Public Schedule once per request; pass the parsed hours/perDay into `computeNectar_`
-   instead of calling `getScheduleHours_` again (note: the Nectar week differs from the board week,
-   so pass the book handle / cached tab parses, not just the result).
-4. Skip `seedRoster_/seedAliases_/syncPointsWithConfig_` on `?board=1` requests; run them on
-   doPost and on an hourly trigger.
-Also: `reconcilePending_` should only retry rows from the last 7 days (it currently retries
-~11,700 old not_at_step rows every 15 min). Confirm whether its trigger exists.
+## Done in v28 (built Oct 19, not yet deployed): board performance
+All four items from the plan, verified with `node test/regression.js` (every board identical
+to v27 on a 4,000-row fixture; see the commit for the measured read counts):
+1. `readScanBlock_` reads column A alone, finds the first and last row inside the needed range
+   (board window ∪ team-goal week ∪ Nectar week ± 1 day), then reads only that block. No
+   ordering assumption: out-of-order rows just widen the block, and every caller still filters
+   each row against its own window as before.
+2. Finished board JSON cached 60 s in `CacheService`, keyed by (scans revision, week, period,
+   from, to). `doPost` and improvement credits bump the revision, so a scan shows on the very
+   next request.
+3. `scheduleConfig_` / `openSchedule_` memoize Points E7/E8/E9 and the schedule workbook for
+   the request (Apps Script executions are isolated, so a script-level memo is per request).
+4. `ensureTabs_(light=true)` on `?board=1` / `?scans=1` skips seeding and the Points sync once
+   the tabs exist. `housekeeping_()` exists for an hourly trigger (add it at deploy time).
+Also: `reconcilePending_` now retries only the last `RECONCILE_DAYS` (7) days and stops after
+~4.5 min. **Still to confirm at deploy: does the 15-minute trigger exist?** If it does, it has
+been timing out every run (11,700 HTTP calls cannot finish inside 6 minutes).
+
+## Deploy v28
+- `clasp push`, `clasp deploy -i <deploymentId> -d "v28: fast board"`, confirm `"v": 28`.
+- Add the hourly `housekeeping_` trigger (Triggers → Add → housekeeping_ → Time-driven → Hour timer).
+- Watch the TV for one shift: `page v12 · script v28`, numbers unchanged from v27.
+
+## Open findings from the Oct 19 review (not fixed in v28)
+- **Idempotency key drift.** `reconcilePending_` rebuilds `scan_id` from the Date stored in the
+  sheet (`toISOString()`), but the original key was built from the phone's `ts` string. If
+  Sheets drops milliseconds or the phone sent a non-UTC string, the retry carries a *different*
+  scan_id and Admin cannot recognise it as a replay. Harmless while Admin answers not_at_step;
+  matters once auto-complete goes live. Fix: store the original `ts` string (new column I) or
+  derive the key from a normalised timestamp on both paths.
+- **Poison row in the phone queue.** `flushQueue` stops at the first failing row forever, so one
+  scan the server rejects with `ok:false` blocks every scan queued behind it on that phone.
+  Fix: after N failures move the row to a "dead" list and show it in the gear menu.
+- **Anyone with the script URL can post.** The web app is `ANYONE_ANONYMOUS` and the URL is in
+  the public HTML. In particular `type=improvement` accepts any name and up to 720 minutes of
+  credit with no secret. Acceptable for a floor board; not for payouts. Fix: a shared token in
+  Script Properties checked on improvement posts (the 2-Minute app would send it).
+- `getNamesMap_` keys on the whole aliases cell ("victor r, victor") so it rarely matches;
+  `names[k]` in `buildLeaderboard_` is effectively dead. Harmless; remove when convenient.
+- Nectar uses the 4 AM shift day for "today" but `getScheduleHours_` uses the calendar day;
+  between midnight and 4 AM the two disagree about whether today counts. Cosmetic.
 
 ## Leaderboard / Nectar
 - Department Top-3 bonus layer (draft notice exists): needs department assignment by
