@@ -159,6 +159,22 @@ var __Html5QrcodeLibrary__;(()=>{var t={449:function(t,e,r){!function(t){"use st
   .setup-copy { font-size: 14px; color: var(--muted); line-height: 1.7; margin-bottom: 14px; }
   .setup-copy b { color: var(--paper); }
 
+  /* v23: Report a problem or idea */
+  #fbBtn { background: none; border: 1px solid #34383F; color: var(--orange); border-radius: 8px; min-height: 36px; min-width: 40px; font-size: 18px; margin-right: 6px; cursor: pointer; }
+  .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: flex-start; justify-content: center; padding: 6vh 14px 14px; z-index: 50; }
+  .modal { background: var(--ink-2, #22252B); border: 1px solid #34383F; border-radius: 16px; width: 100%; max-width: 440px; padding: 18px; }
+  .modal h2 { margin: 0 0 4px; font-size: 19px; }
+  .modal p { margin: 0 0 12px; color: var(--muted); font-size: 14px; line-height: 1.4; }
+  .modal label { display: block; font-weight: 700; font-size: 13px; margin: 12px 0 5px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; }
+  .modal textarea, .modal input[type=text] { width: 100%; box-sizing: border-box; font: inherit; font-size: 16px; padding: 10px 12px; border-radius: 10px; border: 1px solid #34383F; background: var(--ink, #15171B); color: var(--paper); }
+  .modal textarea { min-height: 96px; resize: vertical; }
+  .seg { display: flex; gap: 8px; }
+  .seg button { flex: 1; min-height: 44px; border-radius: 10px; border: 1px solid #34383F; background: transparent; color: var(--paper); font: inherit; font-weight: 700; }
+  .seg button.on { background: var(--orange); border-color: var(--orange); color: #fff; }
+  .modal .row2 { display: flex; gap: 8px; margin-top: 16px; }
+  .modal .row2 .btn { margin: 0; flex: 1; }
+  .modal .merr { color: #ff9d87; font-size: 14px; min-height: 1.2em; margin-top: 8px; }
+
   @media (prefers-reduced-motion: no-preference) {
     .fade { animation: fade .18s ease-out; }
     @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
@@ -168,9 +184,10 @@ var __Html5QrcodeLibrary__;(()=>{var t={449:function(t,e,r){!function(t){"use st
 <body>
 <div id="app">
   <header>
-    <div class="brand">QMT <span>FLOOR SCAN</span> <small style="color:#4a4d54;font-weight:600;letter-spacing:0">v21</small></div>
+    <div class="brand">QMT <span>FLOOR SCAN</span> <small style="color:#4a4d54;font-weight:600;letter-spacing:0">v24</small></div>
     <div class="head-right">
       <div id="net">READY</div>
+      <button id="fbBtn" title="Report a problem or idea">&#9873;</button>
       <button id="gear" title="Setup">⚙︎</button>
     </div>
   </header>
@@ -1037,8 +1054,68 @@ function resetScan(keepStation){
   else showStationStep();
 }
 
+/* ---------- v23: Report a problem or idea ---------- */
+const APP_VERSION = "v24";
+function openFeedback(){
+  closeFeedback();
+  const bg = document.createElement("div");
+  bg.className = "modal-bg"; bg.id = "fbModal";
+  bg.innerHTML =
+    '<div class="modal" role="dialog" aria-modal="true">' +
+    '<h2>Report a problem or idea</h2>' +
+    '<p>Goes straight to Ed. The station, job and phone type are attached automatically.</p>' +
+    '<label>What is it?</label><div class="seg" id="fbKind"><button data-k="Bug" class="on">Something is wrong</button><button data-k="Idea">An idea</button></div>' +
+    '<label for="fbMsg">Tell us</label><textarea id="fbMsg" placeholder="What happened, or what would help?"></textarea>' +
+    '<label for="fbFrom">Your name (optional)</label><input type="text" id="fbFrom" autocomplete="off" value="' + esc(empDisplay(state.emp) || "") + '">' +
+    '<div class="merr" id="fbErr"></div>' +
+    '<div class="row2"><button class="btn btn-ghost" id="fbCancel">Cancel</button><button class="btn btn-primary" id="fbSend">Send</button></div>' +
+    '</div>';
+  bg.addEventListener("click", e => { if (e.target === bg) closeFeedback(); });
+  document.body.appendChild(bg);
+  bg.querySelectorAll("#fbKind button").forEach(b => b.onclick = () => { bg.querySelectorAll("#fbKind button").forEach(x => x.classList.remove("on")); b.classList.add("on"); });
+  $("fbCancel").onclick = closeFeedback;
+  $("fbSend").onclick = async () => {
+    const msg = $("fbMsg").value.trim();
+    if (msg.length < 3){ $("fbErr").textContent = "Please type a few words."; return; }
+    const report = {
+      type: "feedback", app: "scan-app", version: APP_VERSION,
+      kind: bg.querySelector("#fbKind button.on").dataset.k, message: msg.slice(0, 1000),
+      from: $("fbFrom").value.trim().slice(0, 60),
+      station: state.station || "", job: state.job || "",
+      device: (navigator.userAgent.match(/\(([^)]+)\)/) || [, navigator.userAgent])[1].slice(0, 120)
+    };
+    $("fbSend").disabled = true; $("fbSend").textContent = "Sending…";
+    const sent = await sendFeedback(report);
+    closeFeedback();
+    const el = $("net");
+    if (sent) { el.textContent = "THANKS — SENT"; el.className = ""; }
+    else { queueFeedback(report); el.textContent = "SAVED — WILL SEND"; el.className = "queued"; }
+    setTimeout(updateNet, 3000);
+  };
+  setTimeout(() => $("fbMsg").focus(), 50);
+}
+function closeFeedback(){ const m = $("fbModal"); if (m) m.remove(); }
+async function sendFeedback(report){
+  if (!API_URL) return false;
+  try {
+    const res = await fetch(API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(report) });
+    if (!res.ok) return false;
+    const body = await res.json().catch(() => ({ ok: true }));
+    return body && body.ok !== false;
+  } catch(e){ return false; }
+}
+function queueFeedback(report){
+  const q = JSON.parse(store.get("qmt_fb_queue") || "[]"); q.push(report); store.set("qmt_fb_queue", JSON.stringify(q));
+}
+async function flushFeedback(){
+  let q = JSON.parse(store.get("qmt_fb_queue") || "[]");
+  while (q.length){ if (!(await sendFeedback(q[0]))) break; q.shift(); store.set("qmt_fb_queue", JSON.stringify(q)); }
+}
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeFeedback(); });
+
 /* ---------- boot ---------- */
 $("gear").onclick = () => showSetup(API_URL || "");
+$("fbBtn").onclick = openFeedback;
 $("switchCam").onclick = () => cycleCamera();
 $("photoBtn").onclick = () => $("photoIn").click();
 $("photoIn").onchange = e => {
@@ -1046,8 +1123,8 @@ $("photoIn").onchange = e => {
   e.target.value = "";
   if (f) scanPhoto(f);
 };
-window.addEventListener("online", flushQueue);
-setInterval(flushQueue, 60000);
+window.addEventListener("online", () => { flushQueue(); flushFeedback(); });
+setInterval(() => { flushQueue(); flushFeedback(); }, 60000);
 
 (function boot(){
   const hash = decodeURIComponent(location.hash.slice(1));
