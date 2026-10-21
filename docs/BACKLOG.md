@@ -36,6 +36,13 @@ Still to do by hand:
   Then open https://jade-dango-20f096.netlify.app/roster.html — the "View only" note disappears.
 - Watch the TV for one shift: `page v12 · script v28`, numbers unchanged from v27.
 
+## v29 (LIVE 2026-10-21 ~4:50 pm, deployment @31) + leaderboard page v18: feedback from the floor
+"Report a problem or idea" button on the leaderboard (live) and in scan app v23 (draft, with the
+battery changes). Reports land in the Feedback tab; Ed reviews at
+https://jade-dango-20f096.netlify.app/feedback.html. **To switch reviewing on:** Script property
+`FEEDBACK_PASSCODE` (same place as ROSTER_PASSCODE). Tests: `node test/feedback.js`.
+One labelled test report was sent during setup; mark it Done.
+
 ## Open findings from the Oct 19 review (not fixed in v28)
 - **Idempotency key drift.** `reconcilePending_` rebuilds `scan_id` from the Date stored in the
   sheet (`toISOString()`), but the original key was built from the phone's `ts` string. If
