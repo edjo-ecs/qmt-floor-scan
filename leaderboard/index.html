@@ -125,7 +125,7 @@
   /* v19: red while reports are open, green when none */
   .fb-link.open { background: #D9482B; border-color: #D9482B; color: #fff; }
   .fb-link.clear { background: var(--green); border-color: var(--green); color: #fff; }
-  #menuSel { min-height: 0; width: auto; max-width: 9.5em; }   /* v22: keep it compact; the options are wider than the label */
+  #menuSel { min-height: 0; width: 2.6em; padding-left: 0; padding-right: 0; text-align: center; text-align-last: center; font-size: clamp(16px, 1.9vw, 24px); }   /* v23: just the gear */
   .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: flex-start; justify-content: center; padding: 8vh 16px 16px; z-index: 50; }
   .modal { background: var(--ink-2); border: 1px solid var(--rule); border-radius: 16px; width: 100%; max-width: 460px; padding: 20px; font-size: 16px; }
   .modal h2 { margin: 0 0 4px; font-size: 20px; }
@@ -159,8 +159,8 @@
       <div class="verline" id="verline">page v3</div>
     </div>
     <div class="weekbox">
-      <select id="menuSel" class="weeksel" title="Settings: roster, feedback and reports">
-        <option value="" selected>&#9881; Settings &#9662;</option>
+      <select id="menuSel" class="weeksel" title="Settings: roster, feedback and reports" aria-label="Settings">
+        <option value="" selected>&#9881;</option>
         <option value="roster">&#128101; Team roster</option>
         <option value="feedback">&#128203; Feedback review</option>
         <option value="report">&#9873; Report a problem or idea</option>
@@ -282,7 +282,7 @@ function render(data){
   if (Array.isArray(data.rows)) data.rows = data.rows.filter(r => !isFormerIdle(r));
   lastData = data;
   document.getElementById("verline").textContent =
-    "page v22" + (data.v ? " \u00B7 script v" + data.v : "");
+    "page v23" + (data.v ? " \u00B7 script v" + data.v : "");
   const sel = document.getElementById("weekSel");
   const per = document.getElementById("periodSel");
   const det = document.getElementById("viewSel");
