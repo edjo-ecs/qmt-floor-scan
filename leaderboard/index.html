@@ -180,8 +180,8 @@
         <option value="details">Details</option>
         <option value="team" id="teamOpt" hidden>Team goal</option>
       </select>
-      <select id="menuSel" class="weeksel" title="Roster, feedback and reports">
-        <option value="" selected>Menu &#9662;</option>
+      <select id="menuSel" class="weeksel" title="Settings: roster, feedback and reports">
+        <option value="" selected>&#9881; Settings &#9662;</option>
         <option value="roster">&#128101; Team roster</option>
         <option value="feedback">&#128203; Feedback review</option>
         <option value="report">&#9873; Report a problem or idea</option>
@@ -282,7 +282,7 @@ function render(data){
   if (Array.isArray(data.rows)) data.rows = data.rows.filter(r => !isFormerIdle(r));
   lastData = data;
   document.getElementById("verline").textContent =
-    "page v19" + (data.v ? " \u00B7 script v" + data.v : "");
+    "page v20" + (data.v ? " \u00B7 script v" + data.v : "");
   const sel = document.getElementById("weekSel");
   const per = document.getElementById("periodSel");
   const det = document.getElementById("viewSel");
