@@ -300,7 +300,7 @@ function housekeeping_() {
 /** v28: bump the revision the board cache is keyed on, so the next board
  *  request after a scan or a credit recomputes instead of serving the cache. */
 function bumpScansRev_() {
-  try { CacheService.getScriptCache().put("scans_rev", String(Date.now()), 21600); } catch (e) {}
+  try { CacheService.getScriptCache().put("scans_rev", Date.now() + "-" + Math.floor(Math.random() * 1e9), 21600); } catch (e) {}
 }
 
 /**
@@ -549,6 +549,7 @@ function doPost(e) {
   try {
     var ss = ensureTabs_();
     var data = JSON.parse(e.postData.contents);
+    if (data.type === "roster") return json_(handleRoster_(ss, data));   // v28: HR roster page
     if (data.type) return json_(handleImprovement_(ss, data));   // v21: 2-Minute Improvement credits
 
     var scan = {
@@ -719,8 +720,9 @@ function readScanBlock_(scans, startMs, endMs) {
 /** GET: station config for the scan app, or ?board=1 for the leaderboard. */
 function doGet(e) {
   var p = (e && e.parameter) || {};
-  var ss = ensureTabs_(!!(p.board || p.scans));   // v28: read-only requests skip housekeeping
+  var ss = ensureTabs_(!!(p.board || p.scans || p.roster));   // v28: read-only requests skip housekeeping
   if (p.scans) return json_(scanWindow_(ss, p));   // v21: double-dip check
+  if (p.roster) return json_(rosterView_(ss));     // v28: HR roster page
   if (p.board) {
     var wk = parseInt(p.week, 10);
     if (isNaN(wk) || wk < 0) wk = 0;
@@ -1760,4 +1762,150 @@ function targetAt_(pts, key, tsMs) {
     }
   }
   return pts.targets[key];
+}
+
+/* =====================================================================
+ * v28 — HR roster page (leaderboard site, roster.html)
+ *
+ * Lets HR add people, change shifts, set nicknames and mark leavers
+ * without opening the Sheet. Every change goes through here:
+ *   - writes need the passcode in Script Properties ROSTER_PASSCODE
+ *     (blank/missing = editing switched off; reading still works)
+ *   - one change at a time (script lock), checked before it is written
+ *   - every change is appended to a "Roster Log" tab
+ *   - leavers are never deleted: Shift becomes "Former employee", which keeps
+ *     their nicknames joining up old scans (see v28 FORMER EMPLOYEES)
+ * Names tab: A nicknames (comma-separated) | B name | C shift | D Nectar exempt
+ * ===================================================================== */
+
+var ROSTER_SHIFTS = ["Day", "Night", "Former employee"];
+
+/** GET ?roster=1 — everyone on the Names tab, for the roster page. */
+function rosterView_(ss) {
+  var sh = ss.getSheetByName("Names");
+  var people = [];
+  if (sh && sh.getLastRow() >= 2) {
+    sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().forEach(function (r) {
+      var name = String(r[1]).trim();
+      if (!name) return;
+      people.push({
+        name: name,
+        shift: String(r[2]).trim(),
+        nicknames: String(r[0]).split(",").map(function (s) { return s.trim(); }).filter(String),
+        nectarExempt: /^\s*(no|n|exempt)\b/i.test(String(r[3]))
+      });
+    });
+  }
+  var pass = PropertiesService.getScriptProperties().getProperty("ROSTER_PASSCODE");
+  return { ok: true, app: "qmt-floor-scan", v: 28, editable: !!pass, shifts: ROSTER_SHIFTS, people: people };
+}
+
+/** POST { type:"roster", passcode, by, action, name, shift, nicknames } */
+function handleRoster_(ss, data) {
+  var props = PropertiesService.getScriptProperties();
+  var pass = props.getProperty("ROSTER_PASSCODE");
+  if (!pass) return { ok: false, error: "Roster editing is not switched on yet." };
+
+  // Slow down passcode guessing: 10 wrong tries in 10 minutes locks editing for 10 minutes.
+  var cache = CacheService.getScriptCache();
+  var fails = Number(cache.get("roster_fails") || 0);
+  if (fails >= 10) return { ok: false, error: "Too many wrong passcodes. Try again in 10 minutes." };
+  if (normPass_(data.passcode) !== normPass_(pass)) {
+    cache.put("roster_fails", String(fails + 1), 600);
+    return { ok: false, error: "Wrong passcode.", badPasscode: true };
+  }
+  if (data.action === "check") return { ok: true };
+
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(20000); } catch (err) { return { ok: false, error: "Busy, please try again." }; }
+  try {
+    var sh = ss.getSheetByName("Names");
+    var last = sh.getLastRow();
+    var rows = last >= 2 ? sh.getRange(2, 1, last - 1, 4).getValues() : [];
+    var key = function (s) { return String(s || "").trim().replace(/\s+/g, " ").toLowerCase(); };
+    var name = String(data.name || "").trim().replace(/\s+/g, " ");
+    var by = String(data.by || "").trim().slice(0, 60) || "(not given)";
+    var idx = -1;
+    for (var i = 0; i < rows.length; i++) if (key(rows[i][1]) === key(name)) { idx = i; break; }
+
+    // Who already owns a name or nickname (so two people never share one)
+    var owner = {};
+    rows.forEach(function (r, j) {
+      if (!String(r[1]).trim()) return;
+      owner[key(r[1])] = j;
+      String(r[0]).split(",").forEach(function (a) { if (key(a)) owner[key(a)] = j; });
+    });
+    var cleanNicks = function (list, self) {
+      var out = [], seen = {};
+      (Array.isArray(list) ? list : String(list || "").split(",")).forEach(function (a) {
+        a = String(a).trim().replace(/\s+/g, " ");
+        var k = key(a);
+        if (!k || seen[k] || k === key(name)) return;
+        if (owner[k] !== undefined && owner[k] !== self) {
+          throw new Error("“" + a + "” is already used by " + String(rows[owner[k]][1]).trim() + ".");
+        }
+        seen[k] = true;
+        out.push(a.slice(0, 40));
+      });
+      return out;
+    };
+    var shiftOk = function (s) {
+      for (var k = 0; k < ROSTER_SHIFTS.length; k++) if (key(s) === key(ROSTER_SHIFTS[k])) return ROSTER_SHIFTS[k];
+      return null;
+    };
+
+    var action = String(data.action || "");
+    var detail = "";
+    if (action === "add") {
+      if (!name || name.length > 60) return { ok: false, error: "Type the person's full name." };
+      if (owner[key(name)] !== undefined) {
+        return { ok: false, error: (idx >= 0 ? String(rows[idx][1]).trim() : name) + " is already on the list" +
+          (idx >= 0 ? " (" + String(rows[idx][2]).trim() + ")." : " as a nickname for " + String(rows[owner[key(name)]][1]).trim() + ".") };
+      }
+      var sAdd = shiftOk(data.shift);
+      if (!sAdd || sAdd === "Former employee") return { ok: false, error: "Pick Day or Night." };
+      var nicksAdd = cleanNicks(data.nicknames, -1);
+      sh.getRange(last + 1, 1, 1, 3).setValues([[nicksAdd.join(", "), name, sAdd]]);
+      detail = sAdd + (nicksAdd.length ? "; nicknames: " + nicksAdd.join(", ") : "");
+    } else {
+      if (idx < 0) return { ok: false, error: name + " is not on the list." };
+      var rowNo = idx + 2;
+      var before = String(rows[idx][2]).trim();
+      if (action === "shift" || action === "former" || action === "restore") {
+        var s = action === "former" ? "Former employee" : shiftOk(data.shift);
+        if (!s || (action === "restore" && s === "Former employee")) return { ok: false, error: "Pick Day or Night." };
+        sh.getRange(rowNo, 3).setValue(s);
+        if (action === "former" && !String(rows[idx][3]).trim()) sh.getRange(rowNo, 4).setValue("No");
+        if (action === "restore" && /^\s*no\s*$/i.test(String(rows[idx][3]))) sh.getRange(rowNo, 4).setValue("");
+        detail = before + " → " + s;
+      } else if (action === "nicknames") {
+        var nicks = cleanNicks(data.nicknames, idx);
+        sh.getRange(rowNo, 1).setValue(nicks.join(", "));
+        detail = "“" + String(rows[idx][0]).trim() + "” → “" + nicks.join(", ") + "”";
+      } else {
+        return { ok: false, error: "Unknown change." };
+      }
+    }
+
+    var log = ss.getSheetByName("Roster Log");
+    if (!log) {
+      log = ss.insertSheet("Roster Log");
+      log.getRange("A1:E1").setValues([["When", "Changed by", "Change", "Employee", "Details"]]).setFontWeight("bold");
+      log.setFrozenRows(1);
+    }
+    var label = { add: "Added", shift: "Shift changed", former: "Marked former employee", restore: "Brought back", nicknames: "Nicknames changed" }[action];
+    log.appendRow([new Date(), by, label, name, detail]);
+    bumpScansRev_();   // the board and the phones read the roster
+    var view = rosterView_(ss);
+    view.done = label + ": " + name;
+    return view;
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || err) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function normPass_(s) {
+  return String(s || "").toLowerCase().replace(/[\s‘’“”'"`.,\-_]/g, "");
 }

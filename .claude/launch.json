@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "roster-test",
+      "runtimeExecutable": "C:\Users\photo\tools\node\node.exe",
+      "runtimeArgs": ["test/roster-server.js"],
+      "port": 8787
+    }
+  ]
+}

@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#15171B">
+<title>QMT Team Roster</title>
+<style>
+  :root {
+    --ink: #15171B; --paper: #ffffff; --bg: #F4F3EF; --line: #DEDBD3; --muted: #6B6F78;
+    --orange: #E85D0F; --green: #24863F; --red: #C23B2A; --chip: #EEECE6;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  header { background: var(--ink); color: #fff; padding: 14px 16px; }
+  header .in { max-width: 860px; margin: 0 auto; display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .brand { font-weight: 800; letter-spacing: 2px; font-size: 20px; }
+  .brand span { color: var(--orange); }
+  .who { font-size: 13px; color: #B9BCC3; }
+  .who a { color: #fff; }
+  main { max-width: 860px; margin: 0 auto; padding: 16px; }
+  .bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  input[type=text], input[type=password], select {
+    font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; min-width: 0; }
+  #search { flex: 1 1 220px; }
+  button { font: inherit; font-weight: 700; border: 0; border-radius: 10px; padding: 10px 14px; cursor: pointer; }
+  .primary { background: var(--orange); color: #fff; }
+  .ghost { background: #fff; border: 1px solid var(--line); color: var(--ink); }
+  .danger { background: #fff; border: 1px solid #E8B8B0; color: var(--red); }
+  .ok { background: #fff; border: 1px solid #A9D5B4; color: var(--green); }
+  button:disabled { opacity: .5; cursor: default; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+  .tab { background: #fff; border: 1px solid var(--line); color: var(--muted); padding: 8px 14px; border-radius: 999px; font-weight: 700; }
+  .tab.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .list { background: #fff; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+  .row:first-child { border-top: 0; }
+  .row .nm { font-weight: 700; flex: 1 1 200px; }
+  .row .nm small { display: block; font-weight: 400; color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .row .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+  .row .acts button { padding: 7px 10px; font-size: 14px; }
+  .chip { display: inline-block; background: var(--chip); border-radius: 6px; padding: 1px 7px; margin: 2px 4px 0 0; font-size: 12px; color: #444; }
+  .empty { padding: 26px; text-align: center; color: var(--muted); }
+  .note { border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; font-size: 15px; }
+  .note.warn { background: #FFF6DB; border: 1px solid #F0D98A; }
+  .note.err { background: #FDECEA; border: 1px solid #F1B5AC; color: #8A2418; }
+  .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: #fff;
+           padding: 12px 18px; border-radius: 12px; font-weight: 700; box-shadow: 0 6px 24px rgba(0,0,0,.2); max-width: 92vw; }
+  .modal-bg { position: fixed; inset: 0; background: rgba(21,23,27,.45); display: flex; align-items: flex-start; justify-content: center; padding: 8vh 16px 16px; }
+  .modal { background: #fff; border-radius: 16px; width: 100%; max-width: 440px; padding: 20px; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+  .modal h2 { margin: 0 0 4px; font-size: 20px; }
+  .modal p { margin: 0 0 14px; color: var(--muted); font-size: 15px; }
+  .modal label { display: block; font-weight: 700; font-size: 14px; margin: 12px 0 4px; }
+  .modal input, .modal select { width: 100%; }
+  .modal .row2 { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
+  .modal .err { color: var(--red); font-size: 14px; margin-top: 10px; min-height: 1em; }
+  .seg { display: flex; gap: 8px; }
+  .seg button { flex: 1; background: #fff; border: 1px solid var(--line); color: var(--ink); }
+  .seg button.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+  footer { max-width: 860px; margin: 0 auto; padding: 4px 16px 30px; color: var(--muted); font-size: 13px; }
+  @media (max-width: 520px) { .row .acts { width: 100%; } .row .acts button { flex: 1; } }
+</style>
+</head>
+<body>
+<header><div class="in">
+  <div class="brand">QMT <span>TEAM ROSTER</span></div>
+  <div class="who" id="who"></div>
+</div></header>
+
+<main>
+  <div id="banner"></div>
+  <div class="bar">
+    <input type="text" id="search" placeholder="Search by name or nickname" autocomplete="off">
+    <button class="primary" id="addBtn">+ Add employee</button>
+  </div>
+  <div class="tabs" id="tabs"></div>
+  <div class="list" id="list"><div class="empty">Loading the roster&#8230;</div></div>
+</main>
+<footer id="foot">Changes reach the scanning phones and the leaderboard within about a minute. Every change is recorded in the &ldquo;Roster Log&rdquo; tab.</footer>
+
+<script>
+const API = "https://script.google.com/macros/s/AKfycbzfENikUcV-2mjQeTDqovKEsX4ihj2WpgZTKB6L_HLxnHyUefxT-fPXw_AYNivnhZRbOg/exec";
+const PAGE_VERSION = "roster v1";
+const store = {
+  get(k){ try { return localStorage.getItem(k); } catch(e){ return null; } },
+  set(k,v){ try { localStorage.setItem(k,v); } catch(e){} },
+  del(k){ try { localStorage.removeItem(k); } catch(e){} }
+};
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+let people = [], editable = false, live = false, tab = "Day";
+
+/* ---------- loading ---------- */
+async function load(){
+  try {
+    const res = await fetch(API + "?roster=1");
+    const d = await res.json();
+    if (Array.isArray(d.people)) {
+      live = true; editable = !!d.editable; people = d.people;
+    } else if (Array.isArray(d.roster)) {
+      // The script hasn't had the roster update yet: show the list, read-only.
+      live = false; editable = false;
+      people = d.roster.map(p => ({ name: p.name, shift: p.shift, nicknames: [], nectarExempt: !!p.exempt }));
+    } else throw new Error("unexpected reply");
+    banner();
+    render();
+  } catch (e) {
+    $("list").innerHTML = '<div class="empty">Couldn’t load the roster. Check your connection and refresh the page.</div>';
+  }
+}
+
+function banner(){
+  let html = "";
+  if (!live) html = '<div class="note warn"><b>View only for now.</b> Adding and changing people switches on with the next system update. Until then, changes are made in the Names tab of the floor productivity Sheet.</div>';
+  else if (!editable) html = '<div class="note warn"><b>View only.</b> Editing hasn’t been switched on yet (no roster passcode set).</div>';
+  $("banner").innerHTML = html;
+  $("addBtn").disabled = !editable;
+  const by = store.get("roster_by");
+  $("who").innerHTML = editable && by ? 'Signed in as <b>' + esc(by) + '</b> · <a href="#" id="signout">sign out</a>' : "";
+  const so = $("signout"); if (so) so.onclick = e => { e.preventDefault(); store.del("roster_pass"); store.del("roster_by"); banner(); };
+}
+
+/* ---------- list ---------- */
+function shiftOf(p){
+  const s = (p.shift || "").toLowerCase();
+  return s.startsWith("former") ? "Former" : s.startsWith("n") ? "Night" : "Day";
+}
+
+function render(){
+  const q = $("search").value.trim().toLowerCase();
+  const counts = { Day: 0, Night: 0, Former: 0 };
+  people.forEach(p => counts[shiftOf(p)]++);
+  const labels = { Day: "Day shift", Night: "Night shift", Former: "Former employees" };
+  $("tabs").innerHTML = ["Day", "Night", "Former"].map(t =>
+    '<button class="tab' + (t === tab && !q ? " on" : "") + '" data-t="' + t + '">' + labels[t] + ' (' + counts[t] + ')</button>').join("");
+  document.querySelectorAll(".tab").forEach(b => b.onclick = () => { tab = b.dataset.t; $("search").value = ""; render(); });
+
+  const match = p => !q || p.name.toLowerCase().includes(q) || (p.nicknames || []).some(n => n.toLowerCase().includes(q));
+  const rows = people.filter(p => q ? match(p) : shiftOf(p) === tab).sort((a, b) => a.name.localeCompare(b.name));
+  if (!rows.length) {
+    $("list").innerHTML = '<div class="empty">' + (q ? "Nobody matches “" + esc(q) + "”." : "Nobody here.") + '</div>';
+    return;
+  }
+  $("list").innerHTML = rows.map(p => {
+    const s = shiftOf(p);
+    const sub = (q ? labels[s] + (p.nicknames && p.nicknames.length ? " · " : "") : "") +
+      (p.nicknames || []).map(n => '<span class="chip">' + esc(n) + '</span>').join("");
+    let acts = "";
+    if (editable) {
+      if (s === "Former") acts = '<button class="ok" data-a="restore">Bring back</button>';
+      else acts = '<button class="ghost" data-a="shift">Move to ' + (s === "Day" ? "Night" : "Day") + '</button>' +
+                  '<button class="ghost" data-a="nicknames">Nicknames</button>' +
+                  '<button class="danger" data-a="former">Has left</button>';
+    }
+    return '<div class="row" data-n="' + esc(p.name) + '"><div class="nm">' + esc(p.name) +
+      (sub ? '<small>' + sub + '</small>' : '') + '</div><div class="acts">' + acts + '</div></div>';
+  }).join("");
+  document.querySelectorAll(".row button").forEach(b => b.onclick = () => {
+    const p = people.find(x => x.name === b.closest(".row").dataset.n);
+    if (p) act(b.dataset.a, p);
+  });
+}
+
+/* ---------- actions ---------- */
+function act(a, p){
+  const s = shiftOf(p);
+  if (a === "shift") {
+    const to = s === "Day" ? "Night" : "Day";
+    confirmBox("Move " + p.name + " to " + to + " shift?", "They’ll show under " + to + " shift on the scanning phones.", "Move to " + to,
+      () => send({ action: "shift", name: p.name, shift: to }));
+  } else if (a === "former") {
+    confirmBox(p.name + " has left?", "They come off the scanning phones and the leaderboard. Their past scans are kept, and you can bring them back any time.", "Yes, mark as left",
+      () => send({ action: "former", name: p.name }), true);
+  } else if (a === "restore") {
+    pickShift("Bring back " + p.name, "Which shift are they on now?", "Bring back",
+      sh => send({ action: "restore", name: p.name, shift: sh }));
+  } else if (a === "nicknames") {
+    nicknameBox(p);
+  }
+}
+
+function addBox(){
+  modal(
+    '<h2>Add employee</h2><p>They’ll be on the scanning phones within a minute.</p>' +
+    '<label for="fName">Full name</label><input type="text" id="fName" autocomplete="off" placeholder="First and last name">' +
+    '<label>Shift</label><div class="seg" id="fShift"><button data-s="Day" class="on">Day</button><button data-s="Night">Night</button></div>' +
+    '<label for="fNick">Nicknames (optional)</label><input type="text" id="fNick" autocomplete="off" placeholder="e.g. Mari, ML">' +
+    '<div class="err" id="mErr"></div>' +
+    '<div class="row2"><button class="ghost" id="mCancel">Cancel</button><button class="primary" id="mOk">Add</button></div>');
+  segment("fShift");
+  $("fName").focus();
+  $("mOk").onclick = () => {
+    const name = $("fName").value.trim();
+    if (!name.includes(" ")) { $("mErr").textContent = "Please type their first and last name."; return; }
+    send({ action: "add", name: name, shift: segValue("fShift"), nicknames: $("fNick").value }, true);
+  };
+}
+
+function nicknameBox(p){
+  modal(
+    '<h2>Nicknames for ' + esc(p.name) + '</h2><p>Other names they sign in or get written down as, so all their scans count as one person. Separate with commas.</p>' +
+    '<label for="fNick">Nicknames</label><input type="text" id="fNick" autocomplete="off" value="' + esc((p.nicknames || []).join(", ")) + '">' +
+    '<div class="err" id="mErr"></div>' +
+    '<div class="row2"><button class="ghost" id="mCancel">Cancel</button><button class="primary" id="mOk">Save</button></div>');
+  $("fNick").focus();
+  $("mOk").onclick = () => send({ action: "nicknames", name: p.name, nicknames: $("fNick").value }, true);
+}
+
+function confirmBox(title, text, okLabel, fn, danger){
+  modal('<h2>' + esc(title) + '</h2><p>' + esc(text) + '</p><div class="err" id="mErr"></div>' +
+    '<div class="row2"><button class="ghost" id="mCancel">Cancel</button><button class="' + (danger ? "danger" : "primary") + '" id="mOk">' + esc(okLabel) + '</button></div>');
+  $("mOk").onclick = fn;
+}
+
+function pickShift(title, text, okLabel, fn){
+  modal('<h2>' + esc(title) + '</h2><p>' + esc(text) + '</p>' +
+    '<div class="seg" id="fShift"><button data-s="Day" class="on">Day</button><button data-s="Night">Night</button></div>' +
+    '<div class="err" id="mErr"></div>' +
+    '<div class="row2"><button class="ghost" id="mCancel">Cancel</button><button class="primary" id="mOk">' + esc(okLabel) + '</button></div>');
+  segment("fShift");
+  $("mOk").onclick = () => fn(segValue("fShift"));
+}
+
+/* ---------- sign-in (passcode + name, once per device) ---------- */
+function ensureSignedIn(next){
+  if (store.get("roster_pass") && store.get("roster_by")) return next();
+  modal('<h2>Sign in to make changes</h2><p>You only need to do this once on this device.</p>' +
+    '<label for="fBy">Your name</label><input type="text" id="fBy" autocomplete="name" value="' + esc(store.get("roster_by") || "") + '">' +
+    '<label for="fPass">Roster passcode</label><input type="password" id="fPass" autocomplete="current-password">' +
+    '<div class="err" id="mErr"></div>' +
+    '<div class="row2"><button class="ghost" id="mCancel">Cancel</button><button class="primary" id="mOk">Sign in</button></div>');
+  $("fBy").focus();
+  $("mOk").onclick = async () => {
+    const by = $("fBy").value.trim(), pass = $("fPass").value;
+    if (!by || !pass) { $("mErr").textContent = "Please fill in both."; return; }
+    $("mOk").disabled = true;
+    const r = await post({ action: "check", passcode: pass, by: by });
+    $("mOk").disabled = false;
+    if (!r.ok) { $("mErr").textContent = r.error || "That didn’t work."; return; }
+    store.set("roster_pass", pass); store.set("roster_by", by);
+    closeModal(); banner(); next();
+  };
+}
+
+/* ---------- talking to the script ---------- */
+async function post(body){
+  try {
+    const res = await fetch(API, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(Object.assign({ type: "roster" }, body)) });
+    return await res.json();
+  } catch (e) { return { ok: false, error: "Couldn’t reach the system. Check your connection and try again." }; }
+}
+
+function send(body, keepOpenOnError){
+  ensureSignedIn(async () => {
+    const ok = $("mOk"); if (ok) { ok.disabled = true; ok.textContent = "Saving…"; }
+    const r = await post(Object.assign({ passcode: store.get("roster_pass"), by: store.get("roster_by") }, body));
+    if (!r.ok) {
+      if (r.badPasscode) { store.del("roster_pass"); }
+      if ($("mErr")) { $("mErr").textContent = r.error || "That didn’t work."; if (ok) { ok.disabled = false; ok.textContent = "Try again"; } }
+      else toast(r.error || "That didn’t work.");
+      return;
+    }
+    closeModal();
+    if (Array.isArray(r.people)) { people = r.people; editable = !!r.editable; }
+    if (body.action === "former") tab = "Former";
+    else if (body.shift && body.shift !== "Former employee") tab = body.shift;
+    $("search").value = "";
+    render();
+    toast(r.done || "Saved");
+  });
+}
+
+/* ---------- small UI helpers ---------- */
+function modal(html){
+  closeModal();
+  const bg = document.createElement("div");
+  bg.className = "modal-bg"; bg.id = "modalBg";
+  bg.innerHTML = '<div class="modal" role="dialog" aria-modal="true">' + html + '</div>';
+  bg.addEventListener("click", e => { if (e.target === bg) closeModal(); });
+  document.body.appendChild(bg);
+  const c = $("mCancel"); if (c) c.onclick = closeModal;
+  bg.querySelectorAll("input").forEach(i => i.addEventListener("keydown", e => { if (e.key === "Enter" && $("mOk")) $("mOk").click(); }));
+}
+function closeModal(){ const m = $("modalBg"); if (m) m.remove(); }
+function segment(id){ $(id).querySelectorAll("button").forEach(b => b.onclick = () => { $(id).querySelectorAll("button").forEach(x => x.classList.remove("on")); b.classList.add("on"); }); }
+function segValue(id){ const b = $(id).querySelector("button.on"); return b ? b.dataset.s : "Day"; }
+let toastTimer = null;
+function toast(msg){
+  let t = document.querySelector(".toast"); if (!t) { t = document.createElement("div"); t.className = "toast"; document.body.appendChild(t); }
+  t.textContent = msg; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.remove(), 3500);
+}
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+
+$("search").addEventListener("input", render);
+$("addBtn").onclick = () => ensureSignedIn(addBox);
+$("foot").insertAdjacentText("beforeend", " · " + PAGE_VERSION);
+load();
+</script>
+</body>
+</html>
