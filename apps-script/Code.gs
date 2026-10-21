@@ -23,6 +23,11 @@
  *     replayed into Admin (see docs/Spec_Auto-Complete_Racetrack_Steps.pdf).
  *   - The response's totalRows is now the row count of the Scans tab (same
  *     number as before); firstTs is the first row of the block that was read.
+ *   - FORMER EMPLOYEES (added 2026-10-21): type "Former employee" in the Names
+ *     tab's Shift column (C) instead of deleting the row. The person drops off
+ *     the board's zero-score list and (since the scan app only lists Day/Night
+ *     names) off the phones' sign-in list, while their aliases keep old scans
+ *     joined up. Weeks they actually scanned still show them.
  *
  * v27 (unchanged below):
  *   - DATED RATE CHANGES. A new "Rate Changes" tab (created automatically) holds
@@ -1042,9 +1047,13 @@ function buildLeaderboard_(ss, weekOffset, period, fromStr, toStr) {
       })
     };
   });
-  // Zero-fill: roster members with no activity in this window
+  // Zero-fill: roster members with no activity in this window.
+  // v28: a Shift of "Former employee" (Names col C) keeps the row for its aliases
+  // and history, but no longer lists that person at zero. Anyone who did scan
+  // in the window still shows, so past weeks stay complete.
   roster.forEach(function (p) {
     if (totals[p.name.toLowerCase()]) return;
+    if (/former/i.test(p.shift || "")) return;
     list.push({
       name: names[p.name.toLowerCase()] || p.name,
       badge: p.name,
