@@ -28,10 +28,14 @@ show up on a TV within a minute. Read `docs/ARCHITECTURE.md` before changing log
 - Names: `canon()` folds typed names through the Names-tab aliases; always run names through it.
 
 ## Testing without Google
-`Code.gs` can be loaded with `new Function(code)` in Node with mocks for `SpreadsheetApp`,
-`Utilities.formatDate` (must honor the tz argument — use Intl), `CacheService`, `LockService`,
-`Date`. The leaderboard page's script can be exercised the same way with a stub `document`.
-Export the real Scans and schedule tabs via the Sheets API when you need realistic fixtures.
+`test/` holds that harness: `gas-mock.js` (SpreadsheetApp, Utilities.formatDate via Intl with
+the tz honoured, CacheService, LockService, UrlFetchApp, a pinned `Date`), `fixture.js` (a
+4,000-row Scans tab, Points/Names/Rate Changes/Manual Credits, and a GMT schedule workbook with
+colored cells), and `regression.js`, which runs HEAD's `Code.gs` and the working copy against the
+same fixture and fails if any board differs. **Run `node test/regression.js` before every
+`Code.gs` change lands**; when a change is *meant* to alter numbers, say which scenario and why in
+the commit. Export the real Scans and schedule tabs via the Sheets API when you need a realistic
+fixture for a specific bug.
 Syntax-check every edit: `node -e "new Function(require('fs').readFileSync('apps-script/Code.gs','utf8'))"`.
 
 ## Deploying

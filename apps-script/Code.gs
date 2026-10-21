@@ -1,8 +1,34 @@
 /**
- * QMT Floor Scan — Google Apps Script backend (v27: rate changes take effect on a date, never retroactively)
+ * QMT Floor Scan — Google Apps Script backend (v28: the board loads fast)
  * NOTHING TO EDIT IN THIS FILE. Paste it as-is over the old code.
  *
- * NEW IN v27 (over v26 — everything else is unchanged):
+ * NEW IN v28 (2026-10-19, over v27 — scoring is unchanged, only how much work a request does):
+ *   - The board reads only the Scans rows that can matter for the window it is
+ *     showing (plus the Nectar week and the team-goal week around it), instead of
+ *     all ~26k rows on every request. Column A is read alone first to find the
+ *     block; rows inside the block but outside the window are filtered exactly
+ *     as before, so out-of-order rows change nothing.
+ *   - The finished board JSON is cached for 45 s per (week, period, from, to),
+ *     so the board is never more than ~45 s behind. Roster and improvement-credit
+ *     changes clear it at once; scans don't (they arrive every few seconds).
+ *   - The Public Schedule file is opened ONCE per request (it was opened twice:
+ *     once for hours worked, once for "scanned every day").
+ *   - Read-only requests (?board=1, ?scans=1) skip the tab-seeding housekeeping
+ *     (roster/alias seeding, Points sync) once the tabs exist. It still runs on
+ *     every scan posted, and housekeeping_() exists for an hourly trigger.
+ *   - reconcilePending_ retries only rows from the last RECONCILE_DAYS (7) days
+ *     and stops after ~4.5 minutes so it never hits the 6-minute execution
+ *     limit. Older pending / not_at_step rows are left as history and are NOT
+ *     replayed into Admin (see docs/Spec_Auto-Complete_Racetrack_Steps.pdf).
+ *   - The response's totalRows is now the row count of the Scans tab (same
+ *     number as before); firstTs is the first row of the block that was read.
+ *   - FORMER EMPLOYEES (added 2026-10-21): type "Former employee" in the Names
+ *     tab's Shift column (C) instead of deleting the row. The person drops off
+ *     the board's zero-score list and (since the scan app only lists Day/Night
+ *     names) off the phones' sign-in list, while their aliases keep old scans
+ *     joined up. Weeks they actually scanned still show them.
+ *
+ * v27 (unchanged below):
  *   - DATED RATE CHANGES. A new "Rate Changes" tab (created automatically) holds
  *     scheduled changes to a station's Target/shift:
  *         Effective (date & time) | Station | New target/shift | Note
@@ -132,8 +158,25 @@ var DEFAULT_STATIONS = [
   "Sticker"
 ];
 
-function ensureTabs_() {
+// v28: how far back the 15-minute retry sweep looks. Older rows are history.
+var RECONCILE_DAYS = 7;
+// v28: how long a finished board stays cached (seconds). The TV polls every 60 s,
+// so a board is never more than ~45 s behind the Scans tab. Scans deliberately do
+// NOT clear the cache: mid-shift they arrive every few seconds, which kept the
+// cache permanently empty (first live hour, 2026-10-21: ~17 s per request).
+var BOARD_CACHE_SECS = 45;
+
+/**
+ * Make sure every tab and settings cell exists (seeding them on first run).
+ * v28: pass light=true for read-only requests — once the tabs exist, the
+ * seeding and Points sync are skipped; they still run on every doPost and
+ * from housekeeping_().
+ */
+function ensureTabs_(light) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (light && ss.getSheetByName("Scans") && ss.getSheetByName("Points") && ss.getSheetByName("Names")) {
+    return ss;
+  }
 
   var scans = ss.getSheetByName("Scans");
   if (!scans) {
@@ -248,6 +291,18 @@ function ensureTabs_() {
   syncPointsWithConfig_(ss, points);
 
   return ss;
+}
+
+/** v28: attach to an hourly time-driven trigger. Runs the tab seeding and the
+ *  Points/Config sync that ?board=1 requests no longer run themselves. */
+function housekeeping_() {
+  ensureTabs_();
+}
+
+/** v28: bump the revision the board cache is keyed on, so the next board
+ *  request after a scan or a credit recomputes instead of serving the cache. */
+function bumpScansRev_() {
+  try { CacheService.getScriptCache().put("scans_rev", Date.now() + "-" + Math.floor(Math.random() * 1e9), 21600); } catch (e) {}
 }
 
 /**
@@ -496,6 +551,7 @@ function doPost(e) {
   try {
     var ss = ensureTabs_();
     var data = JSON.parse(e.postData.contents);
+    if (data.type === "roster") return json_(handleRoster_(ss, data));   // v28: HR roster page
     if (data.type) return json_(handleImprovement_(ss, data));   // v21: 2-Minute Improvement credits
 
     var scan = {
@@ -588,21 +644,32 @@ function callMis_(scan, scanId) {
  * R5 reconciliation sweep — attach to a time-driven trigger (every 15 min).
  * Re-submits Scans rows whose MIS Status (col G) is "pending" or
  * "not_at_step"; scan_id idempotency in Admin makes replays safe.
+ * v28: only rows from the last RECONCILE_DAYS days, and the sweep stops after
+ * ~4.5 minutes so it finishes inside the 6-minute execution limit instead of
+ * timing out part-way (it was retrying ~11,700 old rows every run). Older
+ * rows are history — they are deliberately never replayed into Admin.
+ * Returns the number of rows re-submitted.
  */
 function reconcilePending_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName("Scans");
-  if (!sheet || sheet.getLastRow() < 2) return;
+  if (!sheet || sheet.getLastRow() < 2) return 0;
 
-  var range = sheet.getRange(2, 1, sheet.getLastRow() - 1, 8);
-  var rows = range.getValues();
+  var t0 = Date.now();
+  var cutoff = t0 - RECONCILE_DAYS * 86400000;
+  var block = readScanBlock_(sheet, cutoff, t0 + 86400000);
+  var rows = block.rows;
+  var tried = 0, changed = 0;
 
   for (var i = 0; i < rows.length; i++) {
+    if (Date.now() - t0 > 270000) break;        // stay well inside the 6-minute limit
     var status = String(rows[i][6] || "");
     if (status !== "pending" && status !== "not_at_step") continue;
+    var ts0 = rows[i][0] instanceof Date ? rows[i][0] : new Date(rows[i][0]);
+    if (isNaN(ts0.getTime()) || ts0.getTime() < cutoff) continue;   // an old row inside the block
 
     var scan = {
-      ts: rows[i][0] instanceof Date ? rows[i][0].toISOString() : String(rows[i][0]),
+      ts: ts0.toISOString(),
       station: String(rows[i][1] || ""),
       job: String(rows[i][2] || ""),
       employee: String(rows[i][3] || ""),
@@ -612,27 +679,72 @@ function reconcilePending_() {
       Utilities.computeDigest(Utilities.DigestAlgorithm.MD5,
         scan.ts + "|" + scan.job + "|" + scan.station + "|" + scan.employee));
 
+    tried++;
     var mis = callMis_(scan, scanId);
     if (mis.misStatus === "pending") continue;  // still unreachable — try next sweep
 
-    if (mis.pages) sheet.getRange(i + 2, 6).setValue(mis.pages);
-    sheet.getRange(i + 2, 7).setValue(mis.misStatus);
-    sheet.getRange(i + 2, 8).setValue(mis.reason || "");
+    var sheetRow = block.firstRow + i;
+    if (mis.pages) sheet.getRange(sheetRow, 6).setValue(mis.pages);
+    sheet.getRange(sheetRow, 7).setValue(mis.misStatus);
+    sheet.getRange(sheetRow, 8).setValue(mis.reason || "");
+    changed++;
   }
+  return tried;
+}
+
+/**
+ * v28: the Scans rows that can matter for [startMs, endMs). Column A is read
+ * on its own first (one column, cheap), the first and last row whose
+ * timestamp falls inside the range mark the block, and only that block is
+ * read in full. Callers keep filtering every row against their own window
+ * exactly as before, so a row that is out of time order changes nothing —
+ * it is simply read as part of a slightly larger block.
+ * Returns { rows: [...], firstRow: <sheet row number of rows[0]> }.
+ */
+function readScanBlock_(scans, startMs, endMs) {
+  var last = scans.getLastRow();
+  if (last < 2) return { rows: [], firstRow: 2 };
+  var col = scans.getRange(2, 1, last - 1, 1).getValues();
+  var lo = -1, hi = -1;
+  for (var i = 0; i < col.length; i++) {
+    var v = col[i][0];
+    var t = (v instanceof Date) ? v.getTime() : new Date(v).getTime();
+    if (isNaN(t) || t < startMs || t >= endMs) continue;
+    if (lo < 0) lo = i;
+    hi = i;
+  }
+  if (lo < 0) return { rows: [], firstRow: 2 };
+  return { rows: scans.getRange(lo + 2, 1, hi - lo + 1, 8).getValues(), firstRow: lo + 2 };
 }
 
 /** GET: station config for the scan app, or ?board=1 for the leaderboard. */
 function doGet(e) {
-  var ss = ensureTabs_();
-  if (e && e.parameter && e.parameter.scans) return json_(scanWindow_(ss, e.parameter));   // v21: double-dip check
-  if (e && e.parameter && e.parameter.board) {
-    var wk = parseInt(e.parameter.week, 10);
+  var p = (e && e.parameter) || {};
+  var ss = ensureTabs_(!!(p.board || p.scans || p.roster));   // v28: read-only requests skip housekeeping
+  if (p.scans) return json_(scanWindow_(ss, p));   // v21: double-dip check
+  if (p.roster) return json_(rosterView_(ss));     // v28: HR roster page
+  if (p.board) {
+    var wk = parseInt(p.week, 10);
     if (isNaN(wk) || wk < 0) wk = 0;
     if (wk > 51) wk = 51;
-    var period = (e.parameter.period === "day") ? "day" : "week";
-    var from = String(e.parameter.from || "");
-    var to = String(e.parameter.to || "");
-    return json_(buildLeaderboard_(ss, wk, period, from, to));
+    var period = (p.period === "day") ? "day" : "week";
+    var from = String(p.from || "");
+    var to = String(p.to || "");
+    // v28: serve the finished board from the cache for BOARD_CACHE_SECS. The key
+    // carries a revision that roster and credit changes bump (rare, and people want
+    // to see those at once); new scans just wait out the cache.
+    var cache = null, ck = null;
+    try {
+      cache = CacheService.getScriptCache();
+      ck = "board28_" + (cache.get("scans_rev") || "0") + "_" + wk + "_" + period + "_" + from + "_" + to;
+      var hit = cache.get(ck);
+      if (hit) return jsonText_(hit);
+    } catch (err) { cache = null; }
+    var text = JSON.stringify(buildLeaderboard_(ss, wk, period, from, to));
+    if (cache && text.length < 95000) {
+      try { cache.put(ck, text, BOARD_CACHE_SECS); } catch (err2) {}
+    }
+    return jsonText_(text);
   }
   return json_({ ok: true, app: "qmt-floor-scan", stations: getStations_(ss), roster: getRoster_(ss) });
 }
@@ -692,7 +804,7 @@ function buildLeaderboard_(ss, weekOffset, period, fromStr, toStr) {
     return aliases[String(person).trim().toLowerCase()] || String(person).trim();
   };
   var totals = {};
-  var totalRows = 0, inWindow = 0;
+  var totalRows = Math.max(0, last - 1), inWindow = 0;
   var seen = {};        // replay guard: identical scans (offline-queue re-posts) count once
   // Team goal always measures the WEEK (the goal is weekly), even on the daily view
   var teamWeekStart = new Date(baseWeekStart.getTime() - weekOffset * 7 * 86400000);
@@ -700,10 +812,15 @@ function buildLeaderboard_(ss, weekOffset, period, fromStr, toStr) {
   var teamSeen = {}, teamUnits = 0;
   var firstTs = null;   // tracer: what does a raw timestamp actually look like?
 
-  if (last >= 2) {
-    var rows = scans.getRange(2, 1, last - 1, 8).getValues();
+  // v28: read only the rows that can matter — this window, the team-goal week,
+  // and the Nectar week (with the one-day margin computeNectar_ allows itself).
+  var nw = nectarWindow_(period, weekStart, weekEnd, midnight, tz);
+  var readStart = Math.min(weekStart.getTime(), teamWeekStart.getTime(), nw.startMs - 86400000);
+  var readEnd = Math.max(weekEnd.getTime(), teamWeekEnd.getTime(), nw.endMs + 86400000);
+  var rows = readScanBlock_(scans, readStart, readEnd).rows;
+
+  if (rows.length) {
     rows.forEach(function (r) {
-      totalRows++;
       var raw = r[0];
       if (firstTs === null) {
         firstTs = Object.prototype.toString.call(raw) + " | " + String(raw);
@@ -888,7 +1005,7 @@ function buildLeaderboard_(ss, weekOffset, period, fromStr, toStr) {
   roster.forEach(function (p) { rosterCanon[p.name.toLowerCase()] = p.name; });
 
   // v24: "scanned every day" status for the weekly Nectar special
-  var nct = computeNectar_(ss, (typeof rows !== "undefined" && rows) ? rows : [], roster, canon, now, tz, period, weekStart, weekEnd, midnight);
+  var nct = computeNectar_(ss, rows, roster, canon, now, tz, period, weekStart, weekEnd, midnight);
   var nectarFor = function (key) { return nct.byPerson[key] || { status: "na", days: 0, scanned: 0 }; };
 
   var list = Object.keys(totals).map(function (k) {
@@ -933,9 +1050,13 @@ function buildLeaderboard_(ss, weekOffset, period, fromStr, toStr) {
       })
     };
   });
-  // Zero-fill: roster members with no activity in this window
+  // Zero-fill: roster members with no activity in this window.
+  // v28: a Shift of "Former employee" (Names col C) keeps the row for its aliases
+  // and history, but no longer lists that person at zero. Anyone who did scan
+  // in the window still shows, so past weeks stay complete.
   roster.forEach(function (p) {
     if (totals[p.name.toLowerCase()]) return;
+    if (/former/i.test(p.shift || "")) return;
     list.push({
       name: names[p.name.toLowerCase()] || p.name,
       badge: p.name,
@@ -991,7 +1112,7 @@ function buildLeaderboard_(ss, weekOffset, period, fromStr, toStr) {
   return {
     ok: true,
     app: "qmt-floor-scan",
-    v: 27,
+    v: 28,
     dailyCapPct: Math.round(pts.dailyCap * 100),
     nectarWeek: nct.week,
     upcomingRates: upcomingRates,
@@ -1159,8 +1280,13 @@ function buildCoachingReport_(ss) {
 }
 
 function json_(obj) {
+  return jsonText_(JSON.stringify(obj));
+}
+
+/** v28: a JSON response from text that is already serialized (cached boards). */
+function jsonText_(text) {
   return ContentService
-    .createTextOutput(JSON.stringify(obj))
+    .createTextOutput(text)
     .setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -1189,7 +1315,7 @@ function handleImprovement_(ss, data) {
     var row = findImprovementRow_(sh, ref);
 
     if (data.type === "improvement") {
-      if (row) return { ok: true, already: true, v: 27 };
+      if (row) return { ok: true, already: true, v: 28 };
       var mins = Number(data.minutes) || 0;
       if (mins <= 0 || mins > 720) return { ok: false, error: "bad minutes" };
       var hours = Math.round((mins / 60) * 1000) / 1000;   // v22: 3 decimals (2 min = 0.033 hr)
@@ -1201,12 +1327,13 @@ function handleImprovement_(ss, data) {
       activity = activity.slice(0, 200);
       sh.appendRow([d, String(data.name || "").trim(), activity, hours,
                     String(data.approver || "").trim(), ref]);
-      return { ok: true, v: 27 };
+      bumpScansRev_();   // v28: credits change the board too
+      return { ok: true, v: 28 };
     }
 
     if (data.type === "improvement_undo") {
-      if (row) sh.deleteRow(row);
-      return { ok: true, removed: !!row, v: 27 };
+      if (row) { sh.deleteRow(row); bumpScansRev_(); }
+      return { ok: true, removed: !!row, v: 28 };
     }
 
     return { ok: false, error: "unknown type" };
@@ -1238,10 +1365,9 @@ function scanWindow_(ss, p) {
   };
   var who = canon(name);
   var scans = ss.getSheetByName("Scans");
-  var last = scans ? scans.getLastRow() : 0;
   var count = 0, stations = {};
-  if (last >= 2) {
-    var rows = scans.getRange(2, 1, last - 1, 8).getValues();
+  if (scans) {
+    var rows = readScanBlock_(scans, from.getTime(), to.getTime() + 1).rows;   // v28: only the window (to is inclusive)
     rows.forEach(function (r) {
       var ts = r[0] instanceof Date ? r[0] : new Date(r[0]);
       if (isNaN(ts.getTime()) || ts < from || ts > to) return;
@@ -1257,7 +1383,7 @@ function scanWindow_(ss, p) {
       }
     });
   }
-  return { ok: true, v: 27, count: count, stations: Object.keys(stations) };
+  return { ok: true, v: 28, count: count, stations: Object.keys(stations) };
 }
 
 /* =====================================================================
@@ -1409,16 +1535,34 @@ function parseScheduleTab_(book, tab, now, tz, breakHrs) {
  * ok=false means "use the workday divisor instead" (switched off, schedule
  * unreadable, or no tab covers the window) — the board never breaks.
  */
+/**
+ * v28: the schedule settings (Points E7/E8/E9) read once per request, and the
+ * Public Schedule workbook opened once per request. Apps Script runs each
+ * request in its own fresh execution, so a script-level memo is per request.
+ */
+var SCHEDULE_MEMO_ = { cfg: null, books: {} };
+function scheduleConfig_(ss) {
+  if (SCHEDULE_MEMO_.cfg) return SCHEDULE_MEMO_.cfg;
+  var pts = ss.getSheetByName("Points");
+  var mode = String(pts.getRange("E9").getValue() || "hours").trim().toLowerCase();
+  var id = String(pts.getRange("E8").getValue() || "").trim() || SCHEDULE_DEFAULT_ID;
+  var breakHrs = Number(pts.getRange("E7").getValue());
+  if (isNaN(breakHrs) || breakHrs < 0 || breakHrs > 2) breakHrs = 0.5;
+  SCHEDULE_MEMO_.cfg = { mode: mode, id: id, breakHrs: breakHrs };
+  return SCHEDULE_MEMO_.cfg;
+}
+function openSchedule_(id) {
+  if (!SCHEDULE_MEMO_.books[id]) SCHEDULE_MEMO_.books[id] = SpreadsheetApp.openById(id);
+  return SCHEDULE_MEMO_.books[id];
+}
+
 function getScheduleHours_(ss, startMs, endMs, now, tz, canon) {
   var out = { ok: false, byPerson: {}, perDay: {}, note: "" };
   try {
-    var pts = ss.getSheetByName("Points");
-    var mode = String(pts.getRange("E9").getValue() || "hours").trim().toLowerCase();
-    if (mode === "days") { out.note = "proration: workdays (Points E9)"; return out; }
-    var id = String(pts.getRange("E8").getValue() || "").trim() || SCHEDULE_DEFAULT_ID;
-    var breakHrs = Number(pts.getRange("E7").getValue());
-    if (isNaN(breakHrs) || breakHrs < 0 || breakHrs > 2) breakHrs = 0.5;
-    var book = SpreadsheetApp.openById(id);
+    var cfg = scheduleConfig_(ss);
+    if (cfg.mode === "days") { out.note = "proration: workdays (Points E9)"; return out; }
+    var breakHrs = cfg.breakHrs;
+    var book = openSchedule_(cfg.id);
     var startKey = Utilities.formatDate(new Date(startMs), tz, "yyyy-MM-dd");
     var endKey = Utilities.formatDate(new Date(endMs), tz, "yyyy-MM-dd");   // exclusive
     var todayKey = Utilities.formatDate(now, tz, "yyyy-MM-dd");
@@ -1461,11 +1605,9 @@ function scheduleCheck_() {
   var now = new Date();
   var aliases = getAliasMap_(ss);
   var canon = function (p) { return aliases[String(p).trim().toLowerCase()] || String(p).trim(); };
-  var pts = ss.getSheetByName("Points");
-  var id = String(pts.getRange("E8").getValue() || "").trim() || SCHEDULE_DEFAULT_ID;
-  var breakHrs = Number(pts.getRange("E7").getValue());
-  if (isNaN(breakHrs) || breakHrs < 0 || breakHrs > 2) breakHrs = 0.5;
-  var book = SpreadsheetApp.openById(id);
+  var cfg = scheduleConfig_(ss);
+  var breakHrs = cfg.breakHrs;
+  var book = openSchedule_(cfg.id);
   var tabs = getScheduleTabs_(book, now, tz).slice(0, 3);
   var out = [["Week of", "Name on the schedule", "Counted as", "Days marked here", "Paid hours"]];
   tabs.forEach(function (t) {
@@ -1516,7 +1658,9 @@ function shiftDayKey_(ts, tz) {
  * person has scanned; days after today are ignored; if the schedule cannot be
  * read every status is "na" (the board never guesses).
  */
-function computeNectar_(ss, scanRows, roster, canon, now, tz, period, weekStart, weekEnd, midnight) {
+/** v28 (logic unchanged, split out so the board can size its Scans read): the
+ *  Thursday-to-Wednesday Nectar week for a view, as { startMs, endMs } (end exclusive). */
+function nectarWindow_(period, weekStart, weekEnd, midnight, tz) {
   var DAY = 86400000;
   var refMs;
   if (period === "day") refMs = midnight.getTime();
@@ -1528,7 +1672,13 @@ function computeNectar_(ss, scanRows, roster, canon, now, tz, period, weekStart,
     dow = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 }[Utilities.formatDate(refD, tz, "EEE")] || 1;
   }
   var startMs = refMs - ((dow - 4 + 7) % 7) * DAY;   // back to Thursday
-  var endMs = startMs + 7 * DAY;
+  return { startMs: startMs, endMs: startMs + 7 * DAY };
+}
+
+function computeNectar_(ss, scanRows, roster, canon, now, tz, period, weekStart, weekEnd, midnight) {
+  var DAY = 86400000;
+  var nw = nectarWindow_(period, weekStart, weekEnd, midnight, tz);
+  var startMs = nw.startMs, endMs = nw.endMs;
   var keySet = {};
   for (var i = 0; i < 7; i++) keySet[Utilities.formatDate(new Date(startMs + i * DAY + DAY / 2), tz, "yyyy-MM-dd")] = true;
   var fmt = function (ms) { return Utilities.formatDate(new Date(ms + DAY / 2), tz, "EEE M/d"); };
@@ -1613,4 +1763,150 @@ function targetAt_(pts, key, tsMs) {
     }
   }
   return pts.targets[key];
+}
+
+/* =====================================================================
+ * v28 — HR roster page (leaderboard site, roster.html)
+ *
+ * Lets HR add people, change shifts, set nicknames and mark leavers
+ * without opening the Sheet. Every change goes through here:
+ *   - writes need the passcode in Script Properties ROSTER_PASSCODE
+ *     (blank/missing = editing switched off; reading still works)
+ *   - one change at a time (script lock), checked before it is written
+ *   - every change is appended to a "Roster Log" tab
+ *   - leavers are never deleted: Shift becomes "Former employee", which keeps
+ *     their nicknames joining up old scans (see v28 FORMER EMPLOYEES)
+ * Names tab: A nicknames (comma-separated) | B name | C shift | D Nectar exempt
+ * ===================================================================== */
+
+var ROSTER_SHIFTS = ["Day", "Night", "Former employee"];
+
+/** GET ?roster=1 — everyone on the Names tab, for the roster page. */
+function rosterView_(ss) {
+  var sh = ss.getSheetByName("Names");
+  var people = [];
+  if (sh && sh.getLastRow() >= 2) {
+    sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().forEach(function (r) {
+      var name = String(r[1]).trim();
+      if (!name) return;
+      people.push({
+        name: name,
+        shift: String(r[2]).trim(),
+        nicknames: String(r[0]).split(",").map(function (s) { return s.trim(); }).filter(String),
+        nectarExempt: /^\s*(no|n|exempt)\b/i.test(String(r[3]))
+      });
+    });
+  }
+  var pass = PropertiesService.getScriptProperties().getProperty("ROSTER_PASSCODE");
+  return { ok: true, app: "qmt-floor-scan", v: 28, editable: !!pass, shifts: ROSTER_SHIFTS, people: people };
+}
+
+/** POST { type:"roster", passcode, by, action, name, shift, nicknames } */
+function handleRoster_(ss, data) {
+  var props = PropertiesService.getScriptProperties();
+  var pass = props.getProperty("ROSTER_PASSCODE");
+  if (!pass) return { ok: false, error: "Roster editing is not switched on yet." };
+
+  // Slow down passcode guessing: 10 wrong tries in 10 minutes locks editing for 10 minutes.
+  var cache = CacheService.getScriptCache();
+  var fails = Number(cache.get("roster_fails") || 0);
+  if (fails >= 10) return { ok: false, error: "Too many wrong passcodes. Try again in 10 minutes." };
+  if (normPass_(data.passcode) !== normPass_(pass)) {
+    cache.put("roster_fails", String(fails + 1), 600);
+    return { ok: false, error: "Wrong passcode.", badPasscode: true };
+  }
+  if (data.action === "check") return { ok: true };
+
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(20000); } catch (err) { return { ok: false, error: "Busy, please try again." }; }
+  try {
+    var sh = ss.getSheetByName("Names");
+    var last = sh.getLastRow();
+    var rows = last >= 2 ? sh.getRange(2, 1, last - 1, 4).getValues() : [];
+    var key = function (s) { return String(s || "").trim().replace(/\s+/g, " ").toLowerCase(); };
+    var name = String(data.name || "").trim().replace(/\s+/g, " ");
+    var by = String(data.by || "").trim().slice(0, 60) || "(not given)";
+    var idx = -1;
+    for (var i = 0; i < rows.length; i++) if (key(rows[i][1]) === key(name)) { idx = i; break; }
+
+    // Who already owns a name or nickname (so two people never share one)
+    var owner = {};
+    rows.forEach(function (r, j) {
+      if (!String(r[1]).trim()) return;
+      owner[key(r[1])] = j;
+      String(r[0]).split(",").forEach(function (a) { if (key(a)) owner[key(a)] = j; });
+    });
+    var cleanNicks = function (list, self) {
+      var out = [], seen = {};
+      (Array.isArray(list) ? list : String(list || "").split(",")).forEach(function (a) {
+        a = String(a).trim().replace(/\s+/g, " ");
+        var k = key(a);
+        if (!k || seen[k] || k === key(name)) return;
+        if (owner[k] !== undefined && owner[k] !== self) {
+          throw new Error("“" + a + "” is already used by " + String(rows[owner[k]][1]).trim() + ".");
+        }
+        seen[k] = true;
+        out.push(a.slice(0, 40));
+      });
+      return out;
+    };
+    var shiftOk = function (s) {
+      for (var k = 0; k < ROSTER_SHIFTS.length; k++) if (key(s) === key(ROSTER_SHIFTS[k])) return ROSTER_SHIFTS[k];
+      return null;
+    };
+
+    var action = String(data.action || "");
+    var detail = "";
+    if (action === "add") {
+      if (!name || name.length > 60) return { ok: false, error: "Type the person's full name." };
+      if (owner[key(name)] !== undefined) {
+        return { ok: false, error: (idx >= 0 ? String(rows[idx][1]).trim() : name) + " is already on the list" +
+          (idx >= 0 ? " (" + String(rows[idx][2]).trim() + ")." : " as a nickname for " + String(rows[owner[key(name)]][1]).trim() + ".") };
+      }
+      var sAdd = shiftOk(data.shift);
+      if (!sAdd || sAdd === "Former employee") return { ok: false, error: "Pick Day or Night." };
+      var nicksAdd = cleanNicks(data.nicknames, -1);
+      sh.getRange(last + 1, 1, 1, 3).setValues([[nicksAdd.join(", "), name, sAdd]]);
+      detail = sAdd + (nicksAdd.length ? "; nicknames: " + nicksAdd.join(", ") : "");
+    } else {
+      if (idx < 0) return { ok: false, error: name + " is not on the list." };
+      var rowNo = idx + 2;
+      var before = String(rows[idx][2]).trim();
+      if (action === "shift" || action === "former" || action === "restore") {
+        var s = action === "former" ? "Former employee" : shiftOk(data.shift);
+        if (!s || (action === "restore" && s === "Former employee")) return { ok: false, error: "Pick Day or Night." };
+        sh.getRange(rowNo, 3).setValue(s);
+        if (action === "former" && !String(rows[idx][3]).trim()) sh.getRange(rowNo, 4).setValue("No");
+        if (action === "restore" && /^\s*no\s*$/i.test(String(rows[idx][3]))) sh.getRange(rowNo, 4).setValue("");
+        detail = before + " → " + s;
+      } else if (action === "nicknames") {
+        var nicks = cleanNicks(data.nicknames, idx);
+        sh.getRange(rowNo, 1).setValue(nicks.join(", "));
+        detail = "“" + String(rows[idx][0]).trim() + "” → “" + nicks.join(", ") + "”";
+      } else {
+        return { ok: false, error: "Unknown change." };
+      }
+    }
+
+    var log = ss.getSheetByName("Roster Log");
+    if (!log) {
+      log = ss.insertSheet("Roster Log");
+      log.getRange("A1:E1").setValues([["When", "Changed by", "Change", "Employee", "Details"]]).setFontWeight("bold");
+      log.setFrozenRows(1);
+    }
+    var label = { add: "Added", shift: "Shift changed", former: "Marked former employee", restore: "Brought back", nicknames: "Nicknames changed" }[action];
+    log.appendRow([new Date(), by, label, name, detail]);
+    bumpScansRev_();   // the board and the phones read the roster
+    var view = rosterView_(ss);
+    view.done = label + ": " + name;
+    return view;
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || err) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function normPass_(s) {
+  return String(s || "").toLowerCase().replace(/[\s‘’“”'"`.,\-_]/g, "");
 }

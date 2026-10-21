@@ -44,8 +44,15 @@ Script web-app URL: `https://script.google.com/macros/s/AKfycbzfENikUcV-2mjQeTDq
 - `nectar` per row: scanned on every scheduled-here day in the Thu–Wed week containing the view.
 - Ranking: rate, then points, units, scans, name.
 
+## Request cost (v28)
+- `?board=1`: column A of Scans (all rows, 1 cell each) + the block of rows covering the window,
+  the team-goal week and the Nectar week; the schedule workbook once; no tab seeding. The finished
+  JSON is cached 60 s per (scans revision, week, period, from, to) — `doPost` bumps the revision.
+- `doPost`: full `ensureTabs_` (seeding + Points sync), one Admin call, one appendRow, cache bump.
+- `reconcilePending_`: last 7 days only, ≤ ~4.5 min per run.
+- `housekeeping_`: hourly trigger; the seeding the board no longer does.
+
 ## Known limits / gotchas
-- Every request reads the whole Scans tab and opens the schedule file twice → slow (see BACKLOG v28).
 - Admin racetrack: ~90% of scans return not_at_step because earlier steps aren't marked; the
   auto-complete spec for Freedom is in `docs/Spec_Auto-Complete_Racetrack_Steps.pdf`.
 - Several new stations are unmapped in Admin (Quality Control, Smashing, Single Knife, Corner
