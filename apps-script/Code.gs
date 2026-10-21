@@ -1,6 +1,15 @@
 /**
- * QMT Floor Scan — Google Apps Script backend (v28: the board loads fast)
+ * QMT Floor Scan — Google Apps Script backend (v29: feedback from the floor)
  * NOTHING TO EDIT IN THIS FILE. Paste it as-is over the old code.
+ *
+ * NEW IN v29 (2026-10-21, over v28 — scoring unchanged):
+ *   - FEEDBACK. The scan app and the leaderboard get a "Report a problem or
+ *     idea" button. Each report lands in a new "Feedback" tab (created on first
+ *     use) with the app, version, station, job and phone type attached. Ed
+ *     reviews them on feedback.html (leaderboard site) and marks each Approved,
+ *     Declined or Done with a note; the decision, who made it and when are
+ *     written back to the row. Reviewing needs Script Property
+ *     FEEDBACK_PASSCODE (blank = review page can't sign in; reports still land).
  *
  * NEW IN v28 (2026-10-19, over v27 — scoring is unchanged, only how much work a request does):
  *   - The board reads only the Scans rows that can matter for the window it is
@@ -552,6 +561,9 @@ function doPost(e) {
     var ss = ensureTabs_();
     var data = JSON.parse(e.postData.contents);
     if (data.type === "roster") return json_(handleRoster_(ss, data));   // v28: HR roster page
+    if (data.type === "feedback") return json_(handleFeedback_(ss, data));              // v29: a report from the floor
+    if (data.type === "feedback_list") return json_(feedbackList_(ss, data));          // v29: review page
+    if (data.type === "feedback_decide") return json_(handleFeedbackDecide_(ss, data)); // v29: review page
     if (data.type) return json_(handleImprovement_(ss, data));   // v21: 2-Minute Improvement credits
 
     var scan = {
@@ -1112,7 +1124,7 @@ function buildLeaderboard_(ss, weekOffset, period, fromStr, toStr) {
   return {
     ok: true,
     app: "qmt-floor-scan",
-    v: 28,
+    v: 29,
     dailyCapPct: Math.round(pts.dailyCap * 100),
     nectarWeek: nct.week,
     upcomingRates: upcomingRates,
@@ -1315,7 +1327,7 @@ function handleImprovement_(ss, data) {
     var row = findImprovementRow_(sh, ref);
 
     if (data.type === "improvement") {
-      if (row) return { ok: true, already: true, v: 28 };
+      if (row) return { ok: true, already: true, v: 29 };
       var mins = Number(data.minutes) || 0;
       if (mins <= 0 || mins > 720) return { ok: false, error: "bad minutes" };
       var hours = Math.round((mins / 60) * 1000) / 1000;   // v22: 3 decimals (2 min = 0.033 hr)
@@ -1328,12 +1340,12 @@ function handleImprovement_(ss, data) {
       sh.appendRow([d, String(data.name || "").trim(), activity, hours,
                     String(data.approver || "").trim(), ref]);
       bumpScansRev_();   // v28: credits change the board too
-      return { ok: true, v: 28 };
+      return { ok: true, v: 29 };
     }
 
     if (data.type === "improvement_undo") {
       if (row) { sh.deleteRow(row); bumpScansRev_(); }
-      return { ok: true, removed: !!row, v: 28 };
+      return { ok: true, removed: !!row, v: 29 };
     }
 
     return { ok: false, error: "unknown type" };
@@ -1383,7 +1395,7 @@ function scanWindow_(ss, p) {
       }
     });
   }
-  return { ok: true, v: 28, count: count, stations: Object.keys(stations) };
+  return { ok: true, v: 29, count: count, stations: Object.keys(stations) };
 }
 
 /* =====================================================================
@@ -1798,7 +1810,7 @@ function rosterView_(ss) {
     });
   }
   var pass = PropertiesService.getScriptProperties().getProperty("ROSTER_PASSCODE");
-  return { ok: true, app: "qmt-floor-scan", v: 28, editable: !!pass, shifts: ROSTER_SHIFTS, people: people };
+  return { ok: true, app: "qmt-floor-scan", v: 29, editable: !!pass, shifts: ROSTER_SHIFTS, people: people };
 }
 
 /** POST { type:"roster", passcode, by, action, name, shift, nicknames } */
@@ -1909,4 +1921,110 @@ function handleRoster_(ss, data) {
 
 function normPass_(s) {
   return String(s || "").toLowerCase().replace(/[\s‘’“”'"`.,\-_]/g, "");
+}
+
+/* =====================================================================
+ * v29 — Feedback from the floor (bugs and ideas)
+ *
+ * Anyone can submit (no passcode: the floor is the point). Reviewing needs
+ * Script Property FEEDBACK_PASSCODE. One "Feedback" tab:
+ *   A Id | B When | C App | D Version | E Kind | F From | G Message | H Station
+ *   | I Job | J Device | K Status | L Decided by | M Decided | N Note
+ * ===================================================================== */
+
+var FEEDBACK_STATUSES = ["New", "Approved", "Declined", "Done"];
+var FEEDBACK_HEADER = ["Id", "When", "App", "Version", "Kind", "From", "Message", "Station", "Job", "Device", "Status", "Decided by", "Decided", "Note"];
+
+function feedbackSheet_(ss) {
+  var sh = ss.getSheetByName("Feedback");
+  if (!sh) {
+    sh = ss.insertSheet("Feedback");
+    sh.getRange(1, 1, 1, FEEDBACK_HEADER.length).setValues([FEEDBACK_HEADER]).setFontWeight("bold");
+    sh.setFrozenRows(1);
+    sh.getRange("P1").setValue("Reports from the Report a problem or idea button in the scan app and on the leaderboard. Review them on the leaderboard site's feedback.html (needs the FEEDBACK_PASSCODE script property). Status: New, Approved, Declined, Done.");
+  }
+  return sh;
+}
+
+function fbClean_(v, max) { return String(v === null || v === undefined ? "" : v).replace(/\s+/g, " ").trim().slice(0, max); }
+
+/** POST { type:"feedback", app, version, kind, message, from, station, job, device } */
+function handleFeedback_(ss, data) {
+  var message = String(data.message || "").trim().slice(0, 1000);
+  if (message.length < 3) return { ok: false, error: "Please describe the problem or idea." };
+  var kind = /bug|problem|error/i.test(String(data.kind || "")) ? "Bug" : "Idea";
+  var sh = feedbackSheet_(ss);
+  var id = "F" + Date.now().toString(36).toUpperCase() + Math.floor(Math.random() * 1296).toString(36).toUpperCase();
+  sh.appendRow([id, new Date(), fbClean_(data.app, 30) || "unknown", fbClean_(data.version, 20), kind,
+    fbClean_(data.from, 60), message, fbClean_(data.station, 60), fbClean_(data.job, 40), fbClean_(data.device, 120),
+    "New", "", "", ""]);
+  return { ok: true, id: id, v: 29 };
+}
+
+function feedbackAuth_(data) {
+  var pass = PropertiesService.getScriptProperties().getProperty("FEEDBACK_PASSCODE");
+  if (!pass) return { ok: false, error: "Reviewing is not switched on yet (no FEEDBACK_PASSCODE)." };
+  var cache = CacheService.getScriptCache();
+  var fails = Number(cache.get("fb_fails") || 0);
+  if (fails >= 10) return { ok: false, error: "Too many wrong passcodes. Try again in 10 minutes." };
+  if (normPass_(data.passcode) !== normPass_(pass)) {
+    cache.put("fb_fails", String(fails + 1), 600);
+    return { ok: false, error: "Wrong passcode.", badPasscode: true };
+  }
+  return { ok: true };
+}
+
+/** POST { type:"feedback_list", passcode } — every report, newest first. */
+function feedbackList_(ss, data) {
+  var auth = feedbackAuth_(data);
+  if (!auth.ok) return auth;
+  var sh = feedbackSheet_(ss);
+  var tz = ss.getSpreadsheetTimeZone() || "America/New_York";
+  var items = [];
+  if (sh.getLastRow() >= 2) {
+    sh.getRange(2, 1, sh.getLastRow() - 1, FEEDBACK_HEADER.length).getValues().forEach(function (r) {
+      if (!String(r[0]).trim()) return;
+      var when = r[1] instanceof Date ? r[1] : new Date(r[1]);
+      var decided = r[12] instanceof Date ? r[12] : (r[12] ? new Date(r[12]) : null);
+      items.push({
+        id: String(r[0]).trim(), whenMs: isNaN(when.getTime()) ? 0 : when.getTime(),
+        when: isNaN(when.getTime()) ? "" : Utilities.formatDate(when, tz, "EEE M/d h:mm a"),
+        app: String(r[2]), version: String(r[3]), kind: String(r[4]), from: String(r[5]), message: String(r[6]),
+        station: String(r[7]), job: String(r[8]), device: String(r[9]),
+        status: String(r[10]).trim() || "New", decidedBy: String(r[11]),
+        decided: decided && !isNaN(decided.getTime()) ? Utilities.formatDate(decided, tz, "EEE M/d h:mm a") : "",
+        note: String(r[13])
+      });
+    });
+  }
+  items.sort(function (a, b) { return b.whenMs - a.whenMs; });
+  return { ok: true, v: 29, statuses: FEEDBACK_STATUSES, items: items };
+}
+
+/** POST { type:"feedback_decide", passcode, by, id, status, note } */
+function handleFeedbackDecide_(ss, data) {
+  var auth = feedbackAuth_(data);
+  if (!auth.ok) return auth;
+  var status = null;
+  FEEDBACK_STATUSES.forEach(function (st) { if (String(data.status || "").trim().toLowerCase() === st.toLowerCase()) status = st; });
+  if (!status) return { ok: false, error: "Pick Approved, Declined, Done or New." };
+  var id = String(data.id || "").trim();
+  var by = fbClean_(data.by, 60) || "(not given)";
+  var note = String(data.note || "").trim().slice(0, 500);
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(20000); } catch (err) { return { ok: false, error: "Busy, please try again." }; }
+  try {
+    var sh = feedbackSheet_(ss);
+    var last = sh.getLastRow();
+    var ids = last >= 2 ? sh.getRange(2, 1, last - 1, 1).getValues() : [];
+    var row = -1;
+    for (var i = 0; i < ids.length; i++) if (String(ids[i][0]).trim() === id) { row = i + 2; break; }
+    if (row < 0) return { ok: false, error: "That report is no longer in the list." };
+    sh.getRange(row, 11, 1, 4).setValues([[status, status === "New" ? "" : by, status === "New" ? "" : new Date(), note]]);
+  } finally {
+    lock.releaseLock();
+  }
+  var list = feedbackList_(ss, data);
+  list.done = status + ": " + id;
+  return list;
 }
