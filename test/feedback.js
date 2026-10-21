@@ -77,7 +77,21 @@ check("bad status refused", !post({ type: "feedback_decide", passcode: "Review 7
 const env2 = setup("x");
 env2.post({ type: "feedback", app: "scan-app", kind: "bug", message: "board check" });
 const board = JSON.parse(mock.load(src, env2.env).doGet({ parameter: { board: "1", week: "0", period: "week" } }).getContent());
-check("board still answers after feedback (v29)", board.ok && board.v === 29 && board.rows.length > 0);
+check("board still answers after feedback (v30)", board.ok && board.v === 30 && board.rows.length > 0);
+
+// v30: the board carries the open-report count, and it moves at once
+{
+  const t = setup("x");
+  const b = () => JSON.parse(mock.load(src, t.env).doGet({ parameter: { board: "1", week: "0", period: "week" } }).getContent());
+  check("board feedbackOpen is 0 with no Feedback tab", b().feedbackOpen === 0);
+  const a1 = t.post({ type: "feedback", app: "scan-app", kind: "bug", message: "count check one" }).id;
+  t.post({ type: "feedback", app: "scan-app", kind: "idea", message: "count check two" });
+  check("two new reports -> feedbackOpen 2 (cache cleared on submit)", b().feedbackOpen === 2, b().feedbackOpen);
+  t.post({ type: "feedback_decide", passcode: "x", by: "Ed", id: a1, status: "Approved" });
+  check("approved still counts as open", b().feedbackOpen === 2);
+  t.post({ type: "feedback_decide", passcode: "x", by: "Ed", id: a1, status: "Done" });
+  check("done drops it -> 1 (cache cleared on decide)", b().feedbackOpen === 1, b().feedbackOpen);
+}
 
 console.log(failures ? `\n${failures} check(s) FAILED` : "\nall feedback checks passed");
 process.exit(failures ? 1 : 0);

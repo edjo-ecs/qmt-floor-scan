@@ -30,7 +30,7 @@ const SCENARIOS = [
   { label: "double-dip check", q: { scans: "1", name: "Victor R", from: "2026-10-12T04:00:00Z", to: "2026-10-19T04:00:00Z" } },
   { label: "app config",       q: {} }
 ];
-const VOLATILE = new Set(["v", "updated", "firstTs"]);
+const VOLATILE = new Set(["v", "updated", "firstTs", "feedbackOpen"]);   // feedbackOpen: added in v30, checked in feedback.js
 
 function stable(obj) {
   if (Array.isArray(obj)) return obj.map(stable);

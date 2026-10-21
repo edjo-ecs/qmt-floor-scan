@@ -1,6 +1,12 @@
 /**
- * QMT Floor Scan — Google Apps Script backend (v29: feedback from the floor)
+ * QMT Floor Scan — Google Apps Script backend (v30: open-report count on the board)
  * NOTHING TO EDIT IN THIS FILE. Paste it as-is over the old code.
+ *
+ * NEW IN v30 (2026-10-21, over v29 — scoring unchanged):
+ *   - The board response carries feedbackOpen: how many Feedback rows are New
+ *     or Approved (not yet Declined or Done). Leaderboard page v19 colours its
+ *     Report button red with that count, or green when it is 0. Submitting or
+ *     deciding a report clears the board cache so the colour changes at once.
  *
  * NEW IN v29 (2026-10-21, over v28 — scoring unchanged):
  *   - FEEDBACK. The scan app and the leaderboard get a "Report a problem or
@@ -1124,7 +1130,7 @@ function buildLeaderboard_(ss, weekOffset, period, fromStr, toStr) {
   return {
     ok: true,
     app: "qmt-floor-scan",
-    v: 29,
+    v: 30,
     dailyCapPct: Math.round(pts.dailyCap * 100),
     nectarWeek: nct.week,
     upcomingRates: upcomingRates,
@@ -1146,6 +1152,7 @@ function buildLeaderboard_(ss, weekOffset, period, fromStr, toStr) {
     weekStartISO: weekStart.toISOString(),
     weekEndISO: weekEnd.toISOString(),
     firstTs: firstTs,
+    feedbackOpen: feedbackOpenCount_(ss),   // v30
     rows: list
   };
 }
@@ -1327,7 +1334,7 @@ function handleImprovement_(ss, data) {
     var row = findImprovementRow_(sh, ref);
 
     if (data.type === "improvement") {
-      if (row) return { ok: true, already: true, v: 29 };
+      if (row) return { ok: true, already: true, v: 30 };
       var mins = Number(data.minutes) || 0;
       if (mins <= 0 || mins > 720) return { ok: false, error: "bad minutes" };
       var hours = Math.round((mins / 60) * 1000) / 1000;   // v22: 3 decimals (2 min = 0.033 hr)
@@ -1340,12 +1347,12 @@ function handleImprovement_(ss, data) {
       sh.appendRow([d, String(data.name || "").trim(), activity, hours,
                     String(data.approver || "").trim(), ref]);
       bumpScansRev_();   // v28: credits change the board too
-      return { ok: true, v: 29 };
+      return { ok: true, v: 30 };
     }
 
     if (data.type === "improvement_undo") {
       if (row) { sh.deleteRow(row); bumpScansRev_(); }
-      return { ok: true, removed: !!row, v: 29 };
+      return { ok: true, removed: !!row, v: 30 };
     }
 
     return { ok: false, error: "unknown type" };
@@ -1395,7 +1402,7 @@ function scanWindow_(ss, p) {
       }
     });
   }
-  return { ok: true, v: 29, count: count, stations: Object.keys(stations) };
+  return { ok: true, v: 30, count: count, stations: Object.keys(stations) };
 }
 
 /* =====================================================================
@@ -1810,7 +1817,7 @@ function rosterView_(ss) {
     });
   }
   var pass = PropertiesService.getScriptProperties().getProperty("ROSTER_PASSCODE");
-  return { ok: true, app: "qmt-floor-scan", v: 29, editable: !!pass, shifts: ROSTER_SHIFTS, people: people };
+  return { ok: true, app: "qmt-floor-scan", v: 30, editable: !!pass, shifts: ROSTER_SHIFTS, people: people };
 }
 
 /** POST { type:"roster", passcode, by, action, name, shift, nicknames } */
@@ -1958,7 +1965,8 @@ function handleFeedback_(ss, data) {
   sh.appendRow([id, new Date(), fbClean_(data.app, 30) || "unknown", fbClean_(data.version, 20), kind,
     fbClean_(data.from, 60), message, fbClean_(data.station, 60), fbClean_(data.job, 40), fbClean_(data.device, 120),
     "New", "", "", ""]);
-  return { ok: true, id: id, v: 29 };
+  bumpScansRev_();   // v30: the board's open-report count changes
+  return { ok: true, id: id, v: 30 };
 }
 
 function feedbackAuth_(data) {
@@ -1998,7 +2006,7 @@ function feedbackList_(ss, data) {
     });
   }
   items.sort(function (a, b) { return b.whenMs - a.whenMs; });
-  return { ok: true, v: 29, statuses: FEEDBACK_STATUSES, items: items };
+  return { ok: true, v: 30, statuses: FEEDBACK_STATUSES, items: items };
 }
 
 /** POST { type:"feedback_decide", passcode, by, id, status, note } */
@@ -2021,10 +2029,26 @@ function handleFeedbackDecide_(ss, data) {
     for (var i = 0; i < ids.length; i++) if (String(ids[i][0]).trim() === id) { row = i + 2; break; }
     if (row < 0) return { ok: false, error: "That report is no longer in the list." };
     sh.getRange(row, 11, 1, 4).setValues([[status, status === "New" ? "" : by, status === "New" ? "" : new Date(), note]]);
+    bumpScansRev_();   // v30: the board's open-report count changes
   } finally {
     lock.releaseLock();
   }
   var list = feedbackList_(ss, data);
   list.done = status + ": " + id;
   return list;
+}
+
+
+/** v30: Feedback rows still open (New or Approved). 0 if the tab doesn't exist yet. */
+function feedbackOpenCount_(ss) {
+  try {
+    var sh = ss.getSheetByName("Feedback");
+    if (!sh || sh.getLastRow() < 2) return 0;
+    var n = 0;
+    sh.getRange(2, 11, sh.getLastRow() - 1, 1).getValues().forEach(function (r) {
+      var st = String(r[0]).trim().toLowerCase();
+      if (st === "" || st === "new" || st === "approved") n++;
+    });
+    return n;
+  } catch (e) { return null; }
 }
