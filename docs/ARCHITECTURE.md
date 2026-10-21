@@ -11,6 +11,9 @@ TV / phones (leaderboard)  --GET ?board=1-->  Apps Script doGet -> buildLeaderbo
                                        |
                                        +--reads--> "2026 Public Schedule" (Oliver's file, GMT)
 2-Minute Improvement app  --POST type=improvement-->  doPost -> Manual Credits row
+HR (roster.html)          --POST type=roster-->       doPost -> Names tab + Roster Log   [ROSTER_PASSCODE]
+Anyone (Report button)    --POST type=feedback-->     doPost -> Feedback tab
+Ed (feedback.html)        --POST type=feedback_list / feedback_decide-->  Feedback tab   [FEEDBACK_PASSCODE]
 ```
 
 Sheet file id: `12VS_aKKpQ4VVvAanjwSHqsFRTbE8vWL9rFparh-NKws`
@@ -33,6 +36,10 @@ Script web-app URL: `https://script.google.com/macros/s/AKfycbzfENikUcV-2mjQeTDq
   the Nectar scan special.
 - **Manual Credits**: Date | Name | Activity | Hours | Approved by | Ref ID. Hours ÷ E5 = rate only.
 - **Hours Check**: written by `scheduleCheck_()`; what the schedule reader counted.
+- **Roster Log** (v28): every change made through roster.html (HR page), with who made it.
+- **Feedback** (v29): Id | When | App | Version | Kind | From | Message | Station | Job | Device | Status |
+  Decided by | Decided | Note. Filled by the "Report a problem or idea" button (scan app v23+, leaderboard
+  page v18+); reviewed on feedback.html. Status: New / Approved / Declined / Done.
 
 ## Scoring (buildLeaderboard_)
 - Rate = Σ(output ÷ target) ÷ hours-worked-in-shifts. Output = qty, or qty×pages for "pages"

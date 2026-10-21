@@ -40,7 +40,7 @@ function dateParts(date, tz) {
 }
 const ISO_DOW = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
 function formatDate(date, tz, pattern) {
-  if (!(date instanceof global.__RealDate) || isNaN(date.getTime())) throw new Error("formatDate: bad date");
+  if (!(date instanceof (global.__RealDate || Date)) || isNaN(date.getTime())) throw new Error("formatDate: bad date");
   const p = dateParts(date, tz);
   const pad = (n, w) => String(n).padStart(w, "0");
   let out = "", i = 0;
@@ -105,7 +105,7 @@ class Range {
     return this._grid((i, j) => {
       const v = this.sheet.data[i] && this.sheet.data[i][j];
       if (v === undefined || v === null) return "";
-      if (v instanceof global.__RealDate) return formatDate(v, this.sheet.book.tz, "M/d/yyyy H:mm:ss");
+      if (v instanceof (global.__RealDate || Date)) return formatDate(v, this.sheet.book.tz, "M/d/yyyy H:mm:ss");
       return String(v);
     });
   }
