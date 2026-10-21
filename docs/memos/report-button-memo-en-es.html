@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The new Report button / El nuevo botón Reportar</title>
+<style>
+  @page { size: Letter; margin: 0.35in 0.5in; }
+  :root { --ink: #15171B; --ink2: #22252B; --paper: #F7F5F0; --orange: #E85D0F; --green: #2FA84F; --muted: #6B6F78; --line: #DEDBD3; }
+  * { box-sizing: border-box; }
+  body { font: 9.2pt/1.28 Arial, Helvetica, sans-serif; color: #111; margin: 0; }
+  .band { background: var(--ink); color: #fff; border-radius: 10px; padding: 10pt 14pt; display: flex; justify-content: space-between; align-items: center; gap: 10pt; }
+  .band h1 { margin: 0; font-size: 17pt; line-height: 1.15; }
+  .band h1 span { color: var(--orange); }
+  .band .es { font-size: 12.5pt; font-weight: 700; color: #B9BCC3; margin-top: 2pt; }
+  .band .meta { text-align: right; font-size: 8.5pt; color: #B9BCC3; line-height: 1.35; white-space: nowrap; }
+  .band .meta b { color: #fff; }
+  .flag { color: var(--orange); font-weight: 800; }
+  .glance { display: grid; grid-template-columns: 1fr 1fr; gap: 10pt; margin: 8pt 0 6pt; }
+  .glance div { border-left: 4px solid var(--orange); padding: 2pt 8pt; font-size: 10.5pt; font-weight: 700; }
+  .glance .es { border-left-color: var(--green); }
+  h2 { font-size: 9.5pt; margin: 6pt 0 3pt; letter-spacing: .5px; text-transform: uppercase; color: var(--muted); }
+  /* illustrations */
+  .shots { display: grid; grid-template-columns: 1.05fr 1.25fr 1.15fr; gap: 9pt; align-items: stretch; }
+  .shot { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 7pt; break-inside: avoid; }
+  .shot .cap { font-size: 8.5pt; color: var(--muted); margin-top: 5pt; line-height: 1.25; }
+  .shot .cap b { color: #111; }
+  .phone { background: var(--ink); border-radius: 8px; padding: 8pt; color: #fff; }
+  .phone .hdr { display: flex; align-items: center; justify-content: space-between; font-weight: 800; letter-spacing: 1.5px; font-size: 8pt; }
+  .phone .hdr .t span { color: var(--orange); }
+  .phone .hdr small { color: #8a8f98; font-weight: 600; letter-spacing: 0; margin-left: 3pt; }
+  .phone .hdr .r { display: flex; align-items: center; gap: 5pt; }
+  .phone .ready { color: #8a8f98; font-size: 7.5pt; }
+  .btnflag { border: 1px solid #34383F; border-radius: 5px; padding: 1pt 6pt; color: var(--orange); font-size: 11pt; font-weight: 800; background: #1b1d22; }
+  .gear { color: #8a8f98; font-size: 10pt; }
+  .ticket { background: var(--paper); color: #111; border-radius: 6px; margin-top: 18pt; padding: 4pt 8pt; font-size: 7pt; letter-spacing: 1.5px; font-weight: 700; color: #6B6F78; }
+  .ticket div { display: flex; justify-content: space-between; border-bottom: 1px solid #ddd; padding: 3pt 0; }
+  .ticket div:last-child { border: 0; }
+  .callout { position: relative; }
+  .callout .arrow { position: absolute; right: 24pt; top: 28pt; color: var(--orange); font-size: 15pt; font-weight: 800; line-height: 1; }
+  .callout .tag { position: absolute; right: 2pt; top: 44pt; background: var(--orange); color: #fff; font-size: 7.5pt; font-weight: 800; padding: 1.5pt 5pt; border-radius: 4px; }
+  .form { background: var(--ink2); border: 1px solid #34383F; border-radius: 8px; padding: 8pt; color: #fff; }
+  .form .t { font-weight: 800; font-size: 9pt; margin-bottom: 2pt; }
+  .form .s { color: #B9BCC3; font-size: 7pt; margin-bottom: 5pt; }
+  .form label { display: block; font-size: 6.5pt; color: #B9BCC3; letter-spacing: 1px; text-transform: uppercase; font-weight: 700; margin: 5pt 0 2pt; }
+  .seg { display: flex; gap: 4pt; }
+  .seg div { flex: 1; text-align: center; border: 1px solid #34383F; border-radius: 5px; padding: 3pt 2pt; font-size: 7pt; font-weight: 700; }
+  .seg .on { background: var(--orange); border-color: var(--orange); }
+  .box { background: var(--ink); border: 1px solid #34383F; border-radius: 5px; padding: 4pt 6pt; font-size: 7pt; color: #ddd; min-height: 20pt; }
+  .box.short { min-height: 0; }
+  .row2 { display: flex; gap: 4pt; margin-top: 6pt; }
+  .row2 div { flex: 1; text-align: center; border-radius: 5px; padding: 4pt; font-size: 7.5pt; font-weight: 800; }
+  .row2 .ghost { border: 1px solid #34383F; color: #B9BCC3; }
+  .row2 .send { background: var(--orange); }
+  .tv { background: var(--ink); border-radius: 8px; padding: 8pt; color: #fff; }
+  .tv .brand { font-weight: 800; letter-spacing: 1.5px; font-size: 8pt; }
+  .tv .brand span { color: var(--orange); }
+  .tv .rows { margin: 6pt 0; font-size: 7pt; color: #ccc; }
+  .tv .rows div { display: flex; justify-content: space-between; border-bottom: 1px solid #2a2d33; padding: 2.5pt 0; }
+  .tv .rows b { color: var(--green); }
+  .tv .foot { display: flex; justify-content: space-between; align-items: center; font-size: 6.5pt; color: #8a8f98; font-weight: 700; letter-spacing: .5px; margin-top: 4pt; }
+  .tv .foot .prize { color: var(--orange); }
+  .tv .foot .fb { border: 1px solid var(--orange); color: var(--orange); border-radius: 4px; padding: 2pt 5pt; font-size: 6.5pt; }
+  /* steps */
+  table { border-collapse: collapse; width: 100%; margin: 3pt 0 0; break-inside: avoid; }
+  th, td { border: 1px solid #bbb; padding: 2.5pt 6pt; text-align: left; vertical-align: top; font-size: 9pt; }
+  th { background: #eee; font-size: 8.5pt; }
+  td.n { width: 22pt; text-align: center; font-weight: 800; color: #fff; background: var(--orange); border-color: #bbb; font-size: 11pt; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10pt; margin-top: 4pt; }
+  .two h3 { margin: 0 0 3pt; font-size: 9.5pt; }
+  .two p { margin: 0 0 4pt; }
+  .ex { display: grid; grid-template-columns: 1fr 1fr; gap: 6pt; margin-top: 2pt; }
+  .ex div { border-radius: 6px; padding: 4pt 7pt; font-size: 8.5pt; }
+  .ex .good { background: #E8F4EC; border: 1px solid #A9D5B4; } .ex .bad { background: #FDECEA; border: 1px solid #F1B5AC; }
+  .ex b { display: block; font-size: 7.5pt; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 1pt; }
+  .ex .good b { color: #24863F; } .ex .bad b { color: #C23B2A; }
+  .foot { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 5pt; border-top: 2px solid var(--ink); padding-top: 4pt; font-size: 8pt; color: var(--muted); }
+  .foot b { color: #111; }
+</style>
+</head>
+<body>
+
+<div class="band">
+  <div>
+    <h1>The new <span>&#9873; Report</span> button</h1>
+    <div class="es">El nuevo botón <span class="flag">&#9873; Reportar</span></div>
+  </div>
+  <div class="meta">October 21, 2026 &middot; 21 de octubre de 2026<br><b>To / Para:</b> Everyone on the floor &middot; Todo el piso<br><b>From / De:</b> Ed Jo, CFO</div>
+</div>
+
+<div class="glance">
+  <div>Something wrong in the scanning app or on the leaderboard? Have a better idea? Tap the flag. It goes straight to Ed, with the station and job attached.</div>
+  <div class="es">¿Algo no funciona en la app de escaneo o en el tablero? ¿Tienes una mejor idea? Toca la bandera. Llega directo a Ed, con la estación y el trabajo incluidos.</div>
+</div>
+
+<h2>Where it is &middot; Dónde está</h2>
+<div class="shots">
+  <div class="shot callout">
+    <div class="phone">
+      <div class="hdr"><div class="t">QMT <span>FLOOR SCAN</span><small>v23</small></div><div class="r"><span class="ready">READY</span><span class="btnflag">&#9873;</span><span class="gear">&#9881;</span></div></div>
+      <div class="ticket"><div><span>STATION</span><span>PUR</span></div><div><span>JOB SHEET</span><span>130605141</span></div><div><span>EMPLOYEE</span><span>Dale</span></div><div><span>QUANTITY</span><span>&mdash;</span></div></div>
+    </div>
+    <div class="arrow">&#8679;</div><div class="tag">Tap here &middot; Toca aquí</div>
+    <div class="cap"><b>Scanning app:</b> the orange flag at the top, next to the gear.<br><b>App de escaneo:</b> la bandera naranja arriba, junto al engrane.</div>
+  </div>
+  <div class="shot">
+    <div class="form">
+      <div class="t">Report a problem or idea</div>
+      <div class="s">Goes straight to Ed. The station, job and phone type are attached automatically.</div>
+      <label>What is it?</label>
+      <div class="seg"><div class="on">Something is wrong</div><div>An idea</div></div>
+      <label>Tell us</label>
+      <div class="box">The Submit button is hidden under the keypad on my phone</div>
+      <label>Your name (optional)</label>
+      <div class="box short">Dale</div>
+      <div class="row2"><div class="ghost">Cancel</div><div class="send">Send</div></div>
+    </div>
+    <div class="cap"><b>The form:</b> pick one, type a sentence, Send.<br><b>El formulario:</b> elige una opción, escribe una frase, Enviar.</div>
+  </div>
+  <div class="shot">
+    <div class="tv">
+      <div class="brand">QMT <span>LEADERBOARD</span></div>
+      <div class="rows"><div><span>&#129351; Idania Davila</span><b>98.6%</b></div><div><span>&#129352; Wilfredo Mercado</span><b>85.3%</b></div><div><span>&#129353; Abigail Sanchez</span><b>85.1%</b></div><div><span>4 &nbsp;Mabel Tene</span><span>71.0%</span></div></div>
+      <div class="foot"><span class="prize">&#127942; TOP 3 THIS WEEK WIN</span><span class="fb">&#9873; Report a problem or idea</span></div>
+    </div>
+    <div class="cap"><b>Leaderboard (TV or phone):</b> the button at the very bottom of the page.<br><b>Tablero (TV o teléfono):</b> el botón al final de la página.</div>
+  </div>
+</div>
+
+<h2>How to use it &middot; Cómo usarlo</h2>
+<table>
+  <tr><th style="width:22pt"></th><th>English</th><th>Español</th></tr>
+  <tr><td class="n">1</td><td>Tap the <b>&#9873; flag</b>.</td><td>Toca la <b>bandera &#9873;</b>.</td></tr>
+  <tr><td class="n">2</td><td>Pick one: <b>Something is wrong</b> or <b>An idea</b>.</td><td>Elige una: <b>Algo no funciona</b> o <b>Una idea</b>.</td></tr>
+  <tr><td class="n">3</td><td>Type a sentence or two: what happened, or what would help. <b>English or Spanish, both are fine.</b></td><td>Escribe una o dos frases: qué pasó, o qué ayudaría. <b>En inglés o en español, los dos sirven.</b></td></tr>
+  <tr><td class="n">4</td><td>Your name is optional. With it, Ed can come and ask you about it.</td><td>Tu nombre es opcional. Con él, Ed puede venir a preguntarte.</td></tr>
+  <tr><td class="n">5</td><td>Tap <b>Send</b>. You'll see &ldquo;Thanks &mdash; sent&rdquo;. No signal? Send anyway; the phone sends it later.</td><td>Toca <b>Enviar</b>. Verás &ldquo;Thanks &mdash; sent&rdquo;. ¿Sin señal? Envíalo igual; el teléfono lo manda después.</td></tr>
+</table>
+
+<div class="two">
+  <div>
+    <h3>A good report says what happened &middot; Un buen reporte dice qué pasó</h3>
+    <div class="ex">
+      <div class="good"><b>This helps &middot; Esto ayuda</b>&ldquo;After I switch camera, the picture goes black until I restart the app.&rdquo;<br>&ldquo;El botón Submit queda tapado por el teclado en mi teléfono.&rdquo;</div>
+      <div class="bad"><b>This doesn't &middot; Esto no</b>&ldquo;App broken.&rdquo;<br>&ldquo;No sirve.&rdquo;</div>
+    </div>
+  </div>
+  <div>
+    <h3>What happens next &middot; Qué pasa después</h3>
+    <p><b>EN:</b> Ed reads every report and marks it <b>Approved</b> (we'll build it), <b>Declined</b> (with a reason) or <b>Done</b> (fixed). Fixes arrive on your phone by themselves; nothing to install.</p>
+    <p><b>ES:</b> Ed lee cada reporte y lo marca <b>Aprobado</b> (lo haremos), <b>Rechazado</b> (con la razón) o <b>Hecho</b> (arreglado). Los arreglos llegan solos a tu teléfono; no hay que instalar nada.</p>
+  </div>
+</div>
+
+<div class="foot">
+  <div><b>App and leaderboard only.</b> Machines, materials and scheduling: your supervisor. HR: Vickie.<br><b>Solo para la app y el tablero.</b> Máquinas, materiales y horarios: tu supervisor. Recursos Humanos: Vickie.</div>
+  <div style="text-align:right"><b>You use these tools every shift. Tell me what's annoying.</b><br><b>Usas estas herramientas cada turno. Dime qué te molesta.</b> &mdash; Ed</div>
+</div>
+
+</body>
+</html>
