@@ -122,6 +122,10 @@
   .prize { color: var(--orange); }
   /* v18: Report a problem or idea */
   .fb-link { background: none; border: 1px solid var(--rule); color: var(--muted); border-radius: 8px; min-height: 0; width: auto; margin: 0; padding: 6px 12px; font-size: clamp(11px, 1.3vw, 16px); font-weight: 700; letter-spacing: 1px; cursor: pointer; }
+  /* v19: red while reports are open, green when none */
+  .fb-link.open { background: #D9482B; border-color: #D9482B; color: #fff; }
+  .fb-link.clear { background: var(--green); border-color: var(--green); color: #fff; }
+  #menuSel { min-height: 0; }
   .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: flex-start; justify-content: center; padding: 8vh 16px 16px; z-index: 50; }
   .modal { background: var(--ink-2); border: 1px solid var(--rule); border-radius: 16px; width: 100%; max-width: 460px; padding: 20px; font-size: 16px; }
   .modal h2 { margin: 0 0 4px; font-size: 20px; }
@@ -175,6 +179,12 @@
         <option value="rate" hidden>Rate</option>
         <option value="details">Details</option>
         <option value="team" id="teamOpt" hidden>Team goal</option>
+      </select>
+      <select id="menuSel" class="weeksel" title="Roster, feedback and reports">
+        <option value="" selected>Menu &#9662;</option>
+        <option value="roster">&#128101; Team roster</option>
+        <option value="feedback">&#128203; Feedback review</option>
+        <option value="report">&#9873; Report a problem or idea</option>
       </select>
       <div class="weekline" id="weekline">Loading&#8230;</div>
     </div>
@@ -256,11 +266,23 @@ function isFormerIdle(r){
   return /former/i.test(r.shift || "") && !r.scans && !(r.manuals || []).length;
 }
 
+/* v19: colour the Report button from the board's open-report count */
+function paintFeedback(data){
+  const b = document.getElementById("fbBtn");
+  if (!b || typeof data.feedbackOpen !== "number") return;   // older script: leave it plain
+  const n = data.feedbackOpen;
+  b.classList.toggle("open", n > 0);
+  b.classList.toggle("clear", n === 0);
+  b.textContent = n > 0 ? "\u2691 " + n + " open \u00B7 Report a problem or idea" : "\u2691 All clear \u00B7 Report a problem or idea";
+  b.title = n > 0 ? n + " report" + (n === 1 ? "" : "s") + " not yet declined or done" : "No open reports";
+}
+
 function render(data){
+  paintFeedback(data);
   if (Array.isArray(data.rows)) data.rows = data.rows.filter(r => !isFormerIdle(r));
   lastData = data;
   document.getElementById("verline").textContent =
-    "page v18" + (data.v ? " \u00B7 script v" + data.v : "");
+    "page v19" + (data.v ? " \u00B7 script v" + data.v : "");
   const sel = document.getElementById("weekSel");
   const per = document.getElementById("periodSel");
   const det = document.getElementById("viewSel");
@@ -651,6 +673,14 @@ document.addEventListener("keydown", e => { if (e.key === "Escape") closeFeedbac
   });
 
   document.getElementById("fbBtn").onclick = openFeedback;
+  // v19: Menu — roster and feedback open in a new tab so the board keeps running
+  const menu = document.getElementById("menuSel");
+  menu.addEventListener("change", () => {
+    const v = menu.value; menu.value = "";
+    if (v === "report") return openFeedback();
+    const page = { roster: "roster.html", feedback: "feedback.html" }[v];
+    if (page) window.open(page, "_blank", "noopener");
+  });
   API_URL = store.get("qmt_api");
   if (BUILT_IN_API && !store.get("qmt_api_custom") && API_URL !== BUILT_IN_API){
     API_URL = BUILT_IN_API;
