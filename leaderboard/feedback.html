@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#15171B">
+<title>QMT Feedback Review</title>
+<style>
+  :root { --ink: #15171B; --bg: #F4F3EF; --line: #DEDBD3; --muted: #6B6F78; --orange: #E85D0F; --green: #24863F; --red: #C23B2A; --chip: #EEECE6; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  header { background: var(--ink); color: #fff; padding: 14px 16px; }
+  header .in { max-width: 860px; margin: 0 auto; display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .brand { font-weight: 800; letter-spacing: 2px; font-size: 20px; }
+  .brand span { color: var(--orange); }
+  .who { font-size: 13px; color: #B9BCC3; } .who a { color: #fff; }
+  main { max-width: 860px; margin: 0 auto; padding: 16px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+  .tab { background: #fff; border: 1px solid var(--line); color: var(--muted); padding: 8px 14px; border-radius: 999px; font-weight: 700; font: inherit; cursor: pointer; }
+  .tab.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 10px; }
+  .top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+  .kind { font-weight: 800; padding: 2px 8px; border-radius: 6px; background: var(--chip); color: #444; }
+  .kind.bug { background: #FDECEA; color: var(--red); } .kind.idea { background: #E8F4EC; color: var(--green); }
+  .msg { font-size: 16px; margin: 8px 0; white-space: pre-wrap; }
+  .meta { font-size: 13px; color: var(--muted); }
+  .meta b { color: #444; font-weight: 700; }
+  .decision { margin-top: 8px; font-size: 14px; background: #FAF8F2; border-left: 3px solid var(--orange); padding: 6px 10px; border-radius: 0 8px 8px 0; }
+  .acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  button { font: inherit; font-weight: 700; border: 0; border-radius: 10px; padding: 8px 12px; cursor: pointer; }
+  .ok { background: #fff; border: 1px solid #A9D5B4; color: var(--green); }
+  .no { background: #fff; border: 1px solid #E8B8B0; color: var(--red); }
+  .done { background: var(--ink); color: #fff; }
+  .ghost { background: #fff; border: 1px solid var(--line); color: var(--ink); }
+  .primary { background: var(--orange); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  .empty { padding: 26px; text-align: center; color: var(--muted); background: #fff; border: 1px solid var(--line); border-radius: 14px; }
+  .note { border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; font-size: 15px; background: #FFF6DB; border: 1px solid #F0D98A; }
+  .modal-bg { position: fixed; inset: 0; background: rgba(21,23,27,.45); display: flex; align-items: flex-start; justify-content: center; padding: 8vh 16px 16px; }
+  .modal { background: #fff; border-radius: 16px; width: 100%; max-width: 440px; padding: 20px; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+  .modal h2 { margin: 0 0 4px; font-size: 20px; } .modal p { margin: 0 0 14px; color: var(--muted); font-size: 15px; }
+  .modal label { display: block; font-weight: 700; font-size: 14px; margin: 12px 0 4px; }
+  .modal input, .modal textarea { width: 100%; font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+  .modal textarea { min-height: 80px; resize: vertical; }
+  .modal .row2 { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
+  .modal .err { color: var(--red); font-size: 14px; margin-top: 10px; min-height: 1em; }
+  .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 12px 18px; border-radius: 12px; font-weight: 700; box-shadow: 0 6px 24px rgba(0,0,0,.2); max-width: 92vw; }
+  footer { max-width: 860px; margin: 0 auto; padding: 4px 16px 30px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<header><div class="in"><div class="brand">QMT <span>FEEDBACK</span></div><div class="who" id="who"></div></div></header>
+<main>
+  <div id="banner"></div>
+  <div class="tabs" id="tabs"></div>
+  <div id="list"><div class="empty">Loading&#8230;</div></div>
+</main>
+<footer>Reports from the &ldquo;Report a problem or idea&rdquo; button in the scan app and on the leaderboard. Every decision is written to the Feedback tab of the productivity Sheet. &middot; review v1</footer>
+
+<script>
+const API = "https://script.google.com/macros/s/AKfycbzfENikUcV-2mjQeTDqovKEsX4ihj2WpgZTKB6L_HLxnHyUefxT-fPXw_AYNivnhZRbOg/exec";
+const store = { get(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }, set(k,v){ try { localStorage.setItem(k,v); } catch(e){} }, del(k){ try { localStorage.removeItem(k); } catch(e){} } };
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+let items = [], tab = "New";
+
+async function post(body){
+  try {
+    const res = await fetch(API, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(body) });
+    return await res.json();
+  } catch(e){ return { ok: false, error: "Couldn’t reach the system. Check your connection and try again." }; }
+}
+function creds(){ return { passcode: store.get("fb_pass"), by: store.get("fb_by") }; }
+
+async function load(){
+  if (!store.get("fb_pass") || !store.get("fb_by")) return signIn(load);
+  const r = await post(Object.assign({ type: "feedback_list" }, creds()));
+  if (!r.ok){
+    if (r.badPasscode) { store.del("fb_pass"); return signIn(load); }
+    $("list").innerHTML = '<div class="empty">' + esc(r.error || "Couldn’t load.") + '</div>';
+    if (/not switched on/.test(r.error || "")) $("banner").innerHTML = '<div class="note"><b>Reviewing isn’t switched on yet.</b> Add the script property <b>FEEDBACK_PASSCODE</b> in the Apps Script project settings, then reload.</div>';
+    return;
+  }
+  items = r.items; who(); render();
+}
+function who(){
+  $("who").innerHTML = 'Signed in as <b>' + esc(store.get("fb_by")) + '</b> · <a href="#" id="signout">sign out</a>';
+  $("signout").onclick = e => { e.preventDefault(); store.del("fb_pass"); store.del("fb_by"); location.reload(); };
+}
+function render(){
+  const counts = { New: 0, Approved: 0, Declined: 0, Done: 0 };
+  items.forEach(i => { counts[i.status] = (counts[i.status] || 0) + 1; });
+  $("tabs").innerHTML = ["New", "Approved", "Declined", "Done"].map(t => '<button class="tab' + (t === tab ? " on" : "") + '" data-t="' + t + '">' + t + ' (' + (counts[t] || 0) + ')</button>').join("");
+  document.querySelectorAll(".tab").forEach(b => b.onclick = () => { tab = b.dataset.t; render(); });
+  const rows = items.filter(i => i.status === tab);
+  if (!rows.length){ $("list").innerHTML = '<div class="empty">Nothing ' + (tab === "New" ? "new" : tab.toLowerCase()) + '.</div>'; return; }
+  $("list").innerHTML = rows.map(i => {
+    const where = [i.app === "scan-app" ? "Scan app" : i.app === "leaderboard" ? "Leaderboard" : i.app, i.version].filter(Boolean).join(" ");
+    const ctx = [i.station && "Station: <b>" + esc(i.station) + "</b>", i.job && "Job: <b>" + esc(i.job) + "</b>", i.device && "Phone: " + esc(i.device)].filter(Boolean).join(" · ");
+    return '<div class="card" data-id="' + esc(i.id) + '">' +
+      '<div class="top"><span class="kind ' + (i.kind === "Bug" ? "bug" : "idea") + '">' + esc(i.kind === "Bug" ? "Problem" : "Idea") + '</span>' +
+      '<span>' + esc(i.when) + '</span><span>·</span><span>' + esc(where) + '</span>' + (i.from ? '<span>·</span><span>from <b>' + esc(i.from) + '</b></span>' : '') + '</div>' +
+      '<div class="msg">' + esc(i.message) + '</div>' +
+      (ctx ? '<div class="meta">' + ctx + '</div>' : '') +
+      (i.status !== "New" ? '<div class="decision"><b>' + esc(i.status) + '</b> by ' + esc(i.decidedBy || "?") + (i.decided ? ' on ' + esc(i.decided) : '') + (i.note ? ' — ' + esc(i.note) : '') + '</div>' : '') +
+      '<div class="acts">' +
+        (i.status !== "Approved" ? '<button class="ok" data-s="Approved">Approve</button>' : '') +
+        (i.status !== "Declined" ? '<button class="no" data-s="Declined">Decline</button>' : '') +
+        (i.status !== "Done" ? '<button class="done" data-s="Done">Done</button>' : '') +
+        (i.status !== "New" ? '<button class="ghost" data-s="New">Back to new</button>' : '') +
+      '</div></div>';
+  }).join("");
+  document.querySelectorAll(".card button").forEach(b => b.onclick = () => decide(b.closest(".card").dataset.id, b.dataset.s));
+}
+function decide(id, status){
+  const it = items.find(x => x.id === id); if (!it) return;
+  modal('<h2>' + esc(status === "New" ? "Back to new" : status) + '</h2><p>' + esc(it.message.slice(0, 140)) + (it.message.length > 140 ? "…" : "") + '</p>' +
+    '<label for="fNote">Note (optional — shows on the report)</label><textarea id="fNote">' + esc(it.note || "") + '</textarea>' +
+    '<div class="err" id="mErr"></div><div class="row2"><button class="ghost" id="mCancel">Cancel</button><button class="primary" id="mOk">' + esc(status === "New" ? "Move back" : "Mark " + status.toLowerCase()) + '</button></div>');
+  $("fNote").focus();
+  $("mOk").onclick = async () => {
+    $("mOk").disabled = true;
+    const r = await post(Object.assign({ type: "feedback_decide", id: id, status: status, note: $("fNote").value.trim() }, creds()));
+    if (!r.ok){ $("mErr").textContent = r.error || "That didn’t work."; $("mOk").disabled = false; if (r.badPasscode) { store.del("fb_pass"); } return; }
+    closeModal(); items = r.items; render(); toast(r.done || "Saved");
+  };
+}
+function signIn(next){
+  modal('<h2>Sign in</h2><p>Once per device.</p><label for="fBy">Your name</label><input type="text" id="fBy" autocomplete="name" value="' + esc(store.get("fb_by") || "Ed") + '">' +
+    '<label for="fPass">Review passcode</label><input type="password" id="fPass" autocomplete="current-password"><div class="err" id="mErr"></div>' +
+    '<div class="row2"><button class="primary" id="mOk">Sign in</button></div>');
+  $("fPass").focus();
+  $("mOk").onclick = async () => {
+    const by = $("fBy").value.trim(), pass = $("fPass").value;
+    if (!by || !pass){ $("mErr").textContent = "Please fill in both."; return; }
+    $("mOk").disabled = true;
+    const r = await post({ type: "feedback_list", passcode: pass, by: by });
+    $("mOk").disabled = false;
+    if (!r.ok){ $("mErr").textContent = r.error || "That didn’t work."; return; }
+    store.set("fb_pass", pass); store.set("fb_by", by); closeModal(); next();
+  };
+}
+function modal(html){
+  closeModal();
+  const bg = document.createElement("div"); bg.className = "modal-bg"; bg.id = "modalBg";
+  bg.innerHTML = '<div class="modal" role="dialog" aria-modal="true">' + html + '</div>';
+  document.body.appendChild(bg);
+  const c = $("mCancel"); if (c) c.onclick = closeModal;
+  bg.querySelectorAll("input").forEach(i => i.addEventListener("keydown", e => { if (e.key === "Enter" && $("mOk")) $("mOk").click(); }));
+}
+function closeModal(){ const m = $("modalBg"); if (m) m.remove(); }
+let toastTimer = null;
+function toast(msg){ let t = document.querySelector(".toast"); if (!t){ t = document.createElement("div"); t.className = "toast"; document.body.appendChild(t); } t.textContent = msg; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.remove(), 3500); }
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+load();
+</script>
+</body>
+</html>

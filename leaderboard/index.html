@@ -120,6 +120,22 @@
   footer { margin-top: auto; padding-top: 2.5vh; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;
            color: var(--muted); font-size: clamp(11px, 1.3vw, 16px); font-weight: 700; letter-spacing: 1px; }
   .prize { color: var(--orange); }
+  /* v18: Report a problem or idea */
+  .fb-link { background: none; border: 1px solid var(--rule); color: var(--muted); border-radius: 8px; min-height: 0; width: auto; margin: 0; padding: 6px 12px; font-size: clamp(11px, 1.3vw, 16px); font-weight: 700; letter-spacing: 1px; cursor: pointer; }
+  .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: flex-start; justify-content: center; padding: 8vh 16px 16px; z-index: 50; }
+  .modal { background: var(--ink-2); border: 1px solid var(--rule); border-radius: 16px; width: 100%; max-width: 460px; padding: 20px; font-size: 16px; }
+  .modal h2 { margin: 0 0 4px; font-size: 20px; }
+  .modal p { margin: 0 0 12px; color: var(--muted); font-size: 14px; line-height: 1.4; }
+  .modal label { display: block; font-weight: 700; font-size: 13px; margin: 12px 0 5px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; }
+  .modal textarea, .modal input[type=text] { width: 100%; box-sizing: border-box; font: inherit; font-size: 16px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--rule); background: var(--ink); color: var(--paper); margin: 0; min-height: 0; }
+  .modal textarea { min-height: 96px; resize: vertical; }
+  .seg { display: flex; gap: 8px; }
+  .seg button { flex: 1; min-height: 44px; margin: 0; border-radius: 10px; border: 1px solid var(--rule); background: transparent; color: var(--paper); font-size: 15px; }
+  .seg button.on { background: var(--orange); border-color: var(--orange); color: #fff; }
+  .modal .row2 { display: flex; gap: 8px; margin-top: 16px; }
+  .modal .row2 button { margin: 0; flex: 1; min-height: 46px; font-size: 15px; }
+  .modal .row2 .ghost { background: transparent; border: 1px solid var(--rule); color: var(--muted); }
+  .modal .merr { color: #ff9d87; font-size: 14px; min-height: 1.2em; margin-top: 8px; }
 
   .empty { text-align: center; color: var(--muted); padding: 8vh 0; font-size: clamp(16px, 2vw, 24px); line-height: 1.7; }
   .err { background: rgba(217,72,43,.14); border: 1px solid #D9482B; color: #ff9d87;
@@ -167,6 +183,7 @@
   <footer>
     <div class="prize">&#127942; TOP 3 THIS WEEK WIN</div>
     <div id="stamp"></div>
+    <button id="fbBtn" class="fb-link">&#9873; Report a problem or idea</button>
   </footer>
 </div>
 
@@ -243,7 +260,7 @@ function render(data){
   if (Array.isArray(data.rows)) data.rows = data.rows.filter(r => !isFormerIdle(r));
   lastData = data;
   document.getElementById("verline").textContent =
-    "page v17" + (data.v ? " \u00B7 script v" + data.v : "");
+    "page v18" + (data.v ? " \u00B7 script v" + data.v : "");
   const sel = document.getElementById("weekSel");
   const per = document.getElementById("periodSel");
   const det = document.getElementById("viewSel");
@@ -544,6 +561,50 @@ function renderDetails(data){
   }, 50);
 })();
 
+/* v18: Report a problem or idea (same backend as the scan app's button) */
+function openFeedback(){
+  closeFeedback();
+  const bg = document.createElement("div");
+  bg.className = "modal-bg"; bg.id = "fbModal";
+  bg.innerHTML =
+    '<div class="modal" role="dialog" aria-modal="true">' +
+    '<h2>Report a problem or idea</h2>' +
+    '<p>About the leaderboard or the scanning app. Goes straight to Ed.</p>' +
+    '<label>What is it?</label><div class="seg" id="fbKind"><button data-k="Bug" class="on">Something is wrong</button><button data-k="Idea">An idea</button></div>' +
+    '<label for="fbMsg">Tell us</label><textarea id="fbMsg" placeholder="What is wrong, or what would help?"></textarea>' +
+    '<label for="fbFrom">Your name (optional)</label><input type="text" id="fbFrom" autocomplete="off" value="' + esc(store.get("qmt_fb_name") || "") + '">' +
+    '<div class="merr" id="fbErr"></div>' +
+    '<div class="row2"><button class="ghost" id="fbCancel">Cancel</button><button id="fbSend">Send</button></div>' +
+    '</div>';
+  bg.addEventListener("click", e => { if (e.target === bg) closeFeedback(); });
+  document.body.appendChild(bg);
+  bg.querySelectorAll("#fbKind button").forEach(b => b.onclick = () => { bg.querySelectorAll("#fbKind button").forEach(x => x.classList.remove("on")); b.classList.add("on"); });
+  document.getElementById("fbCancel").onclick = closeFeedback;
+  document.getElementById("fbSend").onclick = async () => {
+    const msg = document.getElementById("fbMsg").value.trim();
+    if (msg.length < 3){ document.getElementById("fbErr").textContent = "Please type a few words."; return; }
+    const from = document.getElementById("fbFrom").value.trim().slice(0, 60);
+    store.set("qmt_fb_name", from);
+    const btn = document.getElementById("fbSend"); btn.disabled = true; btn.textContent = "Sending\u2026";
+    let ok = false;
+    try {
+      const res = await fetch(API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ type: "feedback", app: "leaderboard", version: "page v18",
+          kind: bg.querySelector("#fbKind button.on").dataset.k, message: msg.slice(0, 1000), from: from,
+          device: (navigator.userAgent.match(/\(([^)]+)\)/) || [, navigator.userAgent])[1].slice(0, 120) }) });
+      const body = await res.json().catch(() => ({ ok: res.ok }));
+      ok = !!(body && body.ok !== false);
+    } catch(e){}
+    if (!ok){ document.getElementById("fbErr").textContent = "Couldn\u2019t send. Check the connection and try again."; btn.disabled = false; btn.textContent = "Send"; return; }
+    closeFeedback();
+    const s = document.getElementById("stamp"); const old = s.textContent;
+    s.textContent = "THANKS \u2014 SENT TO ED"; setTimeout(() => { s.textContent = old; }, 4000);
+  };
+  setTimeout(() => document.getElementById("fbMsg").focus(), 50);
+}
+function closeFeedback(){ const m = document.getElementById("fbModal"); if (m) m.remove(); }
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeFeedback(); });
+
 (function boot(){
   // Accept the URL via #hash (share link), otherwise reuse the scan app's saved URL
   const hash = decodeURIComponent(location.hash.slice(1));
@@ -589,6 +650,7 @@ function renderDetails(data){
     window.scrollTo(0, 0);
   });
 
+  document.getElementById("fbBtn").onclick = openFeedback;
   API_URL = store.get("qmt_api");
   if (BUILT_IN_API && !store.get("qmt_api_custom") && API_URL !== BUILT_IN_API){
     API_URL = BUILT_IN_API;
