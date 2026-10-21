@@ -63,6 +63,10 @@
   td.rank { color: var(--muted); font-weight: 800; width: 2.2em; }
   td.nm { font-weight: 700; }
   td.pts { text-align: right; font-weight: 800; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  /* v16: 50%+ of standard = green, 20-49% = yellow, under 20% = red */
+  td.pts.ok, .det-head .pts.ok { color: var(--green); }
+  td.pts.mid, .det-head .pts.mid { color: #FFD23F; }
+  td.pts.low, .det-head .pts.low { color: #ff6b5e; }
   td.sub { text-align: right; color: var(--muted); font-size: clamp(11px, 1.3vw, 16px); width: 9em; }
 
   /* v11: "scanned every day" (weekly Nectar special) */
@@ -232,7 +236,7 @@ async function refresh(){
 function render(data){
   lastData = data;
   document.getElementById("verline").textContent =
-    "page v12" + (data.v ? " \u00B7 script v" + data.v : "");
+    "page v16" + (data.v ? " \u00B7 script v" + data.v : "");
   const sel = document.getElementById("weekSel");
   const per = document.getElementById("periodSel");
   const det = document.getElementById("viewSel");
@@ -240,7 +244,7 @@ function render(data){
   const v13 = Number(data.v) >= 13;
   const rateOk = Number(data.v) >= 12 && data.hasTargets;
   const rateStandings = v13 && data.hasTargets;   // standings ranked by rate
-  const nctOk = Number(data.v) >= 24 && !!data.nectarWeek;   // "scanned every day" column
+  const nctOk = false;   // v14: "scanned every day" special retired — column hidden
   per.style.display = (v10 && currentWeek !== "custom") ? "" : "none";
   det.style.display = v10 ? "" : "none";
   const rateOpt = det.querySelector('option[value="rate"]');
@@ -351,7 +355,7 @@ function render(data){
         '<td class="rank">' + (i + 4) + '</td>' +
         '<td class="nm">' + esc(r.name) + '</td>' +
         '<td class="sub">' + r.scans + ' jobs \u00B7 ' + r.units.toLocaleString() + ' units</td>' +
-        '<td class="pts">' + big(r) + '</td>' +
+        '<td class="pts' + (rateStandings ? rateCls(r) : '') + '">' + big(r) + '</td>' +
         (nctOk ? '<td class="nct ' + nctInfo(r).cls + '">' + nctInfo(r).txt + '</td>' : '') +
         '</tr>';
     });
@@ -379,6 +383,13 @@ function render(data){
   }
 
   board.innerHTML = html;
+}
+
+/* v16: color a person's % — 50%+ green, 20-49% yellow, under 20% red, no rate = default */
+function rateCls(r){
+  if (r.scans === 0) return " low";
+  if (typeof r.rate !== "number" || r.rate <= 0) return "";
+  return r.rate >= 50 ? " ok" : (r.rate >= 20 ? " mid" : " low");
 }
 
 function filterByShift(rows){
@@ -454,7 +465,7 @@ function renderTeam(data){
 
 /* Details view: every person, with units per station */
 function renderDetails(data){
-  const nctOk = Number(data.v) >= 24 && !!data.nectarWeek;
+  const nctOk = false;   // v14: "scanned every day" special retired
   const rows = filterByShift(data.rows || []).slice().sort((a, b) => {
     const ra = typeof a.rate === "number" ? a.rate : -1;
     const rb = typeof b.rate === "number" ? b.rate : -1;
@@ -475,7 +486,7 @@ function renderDetails(data){
         '<span class="rank">' + (i + 1) + '</span>' +
         '<span class="nm">' + esc(r.name) + '</span>' +
         (nctOk ? '<span class="nct-chip ' + nctInfo(r).cls + '">Scanned every day: ' + nctInfo(r).long + '</span>' : '') +
-        '<span class="pts">' + ((typeof r.rate === "number" && r.rate > 0) ? r.rate.toLocaleString() + "%" : fmtPts(r.points)) + '</span>' +
+        '<span class="pts' + rateCls(r) + '">' + ((typeof r.rate === "number" && r.rate > 0) ? r.rate.toLocaleString() + "%" : fmtPts(r.points)) + '</span>' +
       '</div>';
     // v12: for anyone marked No, say exactly which days were worked and which had no scan
     if (nctOk && r.nectar && r.nectar.status === "no" && (r.nectar.missed || []).length){
