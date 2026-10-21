@@ -66,7 +66,14 @@ Still to do by hand:
 - Map unmapped stations; check job_not_found barcodes against Gelato jobs.
 
 ## Scan app
-- v20 is live. A v21 (PUR 280/470) was built and reverted; not deployed.
+- v21 is live (PUR 280/470 — BACKLOG previously said it was reverted; it was not).
+- **v22 (battery) built 2026-10-21 on branch `scan-app-v22-battery`, draft-deployed, NOT live.**
+  Camera released 30 s after leaving the scan screen (was paused-but-open for 120 s), released
+  at once on visibilitychange/pagehide, capture 1280x720 @ 10 fps (was 1080p @ 15). Needs a
+  floor phone test on the draft URL (see commit) before `netlify deploy --prod --dir scan-app
+  --site a0dce97c-c9d4-4a0c-8ad5-c23c4d1cdf27`. Watch for: reopen delay after a pause, any
+  barcode that no longer reads at 720p (then try 1280x960 or go back to 1080p but keep the release
+  changes — the release changes are the bigger battery win).
 - Unknown stations fall into an "Other" tab — consider reading groups from the Sheet.
 
 ## Decisions log
