@@ -21,6 +21,9 @@ been timing out every run (11,700 HTTP calls cannot finish inside 6 minutes).
 ## Deploy v28
 - `clasp push`, `clasp deploy -i <deploymentId> -d "v28: fast board"`, confirm `"v": 28`.
 - Add the hourly `housekeeping_` trigger (Triggers → Add → housekeeping_ → Time-driven → Hour timer).
+- Turn on HR roster editing: Apps Script editor → Project Settings → Script properties → add
+  `ROSTER_PASSCODE` (Ed picks it and gives it to Vickie directly; never in this repo or a chat).
+  Then open https://jade-dango-20f096.netlify.app/roster.html — the "View only" note disappears.
 - Watch the TV for one shift: `page v12 · script v28`, numbers unchanged from v27.
 
 ## Open findings from the Oct 19 review (not fixed in v28)
