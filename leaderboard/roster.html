@@ -28,8 +28,7 @@
   .primary { background: var(--orange); color: #fff; }
   .ghost { background: #fff; border: 1px solid var(--line); color: var(--ink); }
   .danger { background: #fff; border: 1px solid #E8B8B0; color: var(--red); }
-  .ok { background: #fff; border: 1px solid #A9D5B4; color: var(--green); }
-  button:disabled { opacity: .5; cursor: default; }
+    button:disabled { opacity: .5; cursor: default; }
   .tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
   .tab { background: #fff; border: 1px solid var(--line); color: var(--muted); padding: 8px 14px; border-radius: 999px; font-weight: 700; }
   .tab.on { background: var(--ink); color: #fff; border-color: var(--ink); }
@@ -81,7 +80,7 @@
 
 <script>
 const API = "https://script.google.com/macros/s/AKfycbzfENikUcV-2mjQeTDqovKEsX4ihj2WpgZTKB6L_HLxnHyUefxT-fPXw_AYNivnhZRbOg/exec";
-const PAGE_VERSION = "roster v1";
+const PAGE_VERSION = "roster v2";
 const store = {
   get(k){ try { return localStorage.getItem(k); } catch(e){ return null; } },
   set(k,v){ try { localStorage.setItem(k,v); } catch(e){} },
@@ -147,38 +146,57 @@ function render(){
     const s = shiftOf(p);
     const sub = (q ? labels[s] + (p.nicknames && p.nicknames.length ? " · " : "") : "") +
       (p.nicknames || []).map(n => '<span class="chip">' + esc(n) + '</span>').join("");
-    let acts = "";
-    if (editable) {
-      if (s === "Former") acts = '<button class="ok" data-a="restore">Bring back</button>';
-      else acts = '<button class="ghost" data-a="shift">Move to ' + (s === "Day" ? "Night" : "Day") + '</button>' +
-                  '<button class="ghost" data-a="nicknames">Nicknames</button>' +
-                  '<button class="danger" data-a="former">Has left</button>';
-    }
+    const acts = editable
+      ? '<button class="ghost" data-a="edit">Edit</button>'
+      : '<button class="ghost" disabled title="Editing switches on with the next system update">Edit</button>';
     return '<div class="row" data-n="' + esc(p.name) + '"><div class="nm">' + esc(p.name) +
       (sub ? '<small>' + sub + '</small>' : '') + '</div><div class="acts">' + acts + '</div></div>';
   }).join("");
-  document.querySelectorAll(".row button").forEach(b => b.onclick = () => {
+  document.querySelectorAll('.row button[data-a="edit"]').forEach(b => b.onclick = () => {
     const p = people.find(x => x.name === b.closest(".row").dataset.n);
-    if (p) act(b.dataset.a, p);
+    if (p) editBox(p);
   });
 }
 
-/* ---------- actions ---------- */
-function act(a, p){
-  const s = shiftOf(p);
-  if (a === "shift") {
-    const to = s === "Day" ? "Night" : "Day";
-    confirmBox("Move " + p.name + " to " + to + " shift?", "They’ll show under " + to + " shift on the scanning phones.", "Move to " + to,
-      () => send({ action: "shift", name: p.name, shift: to }));
-  } else if (a === "former") {
-    confirmBox(p.name + " has left?", "They come off the scanning phones and the leaderboard. Their past scans are kept, and you can bring them back any time.", "Yes, mark as left",
-      () => send({ action: "former", name: p.name }), true);
-  } else if (a === "restore") {
-    pickShift("Bring back " + p.name, "Which shift are they on now?", "Bring back",
-      sh => send({ action: "restore", name: p.name, shift: sh }));
-  } else if (a === "nicknames") {
-    nicknameBox(p);
+/* ---------- edit one person: status, shift, nicknames ---------- */
+function editBox(p){
+  const former = shiftOf(p) === "Former";
+  const shiftNow = former ? "Day" : shiftOf(p);
+  modal(
+    '<h2>' + esc(p.name) + '</h2><p>Change their status, shift or nicknames, then Save.</p>' +
+    '<label>Status</label><div class="seg" id="fStatus">' +
+      '<button data-s="current"' + (former ? '' : ' class="on"') + '>Current employee</button>' +
+      '<button data-s="former"' + (former ? ' class="on"' : '') + '>Former employee</button></div>' +
+    '<div id="shiftWrap"><label>Shift</label><div class="seg" id="fShift">' +
+      '<button data-s="Day"' + (shiftNow === "Day" ? ' class="on"' : '') + '>Day</button>' +
+      '<button data-s="Night"' + (shiftNow === "Night" ? ' class="on"' : '') + '>Night</button></div></div>' +
+    '<p id="formerNote" style="margin:10px 0 0;font-size:14px">Former employees come off the scanning phones and the leaderboard. Their past scans are kept.</p>' +
+    '<label for="fNick">Nicknames (other names they sign in under, separated by commas)</label>' +
+    '<input type="text" id="fNick" autocomplete="off" value="' + esc((p.nicknames || []).join(", ")) + '">' +
+    '<div class="err" id="mErr"></div>' +
+    '<div class="row2"><button class="ghost" id="mCancel">Cancel</button><button class="primary" id="mOk">Save</button></div>');
+  segment("fShift");
+  segment("fStatus", showShift);
+  showShift();
+  function showShift(){
+    const isFormer = segValue("fStatus") === "former";
+    $("shiftWrap").style.display = isFormer ? "none" : "";
+    $("formerNote").style.display = isFormer ? "" : "none";
   }
+  $("mOk").onclick = () => {
+    const wantFormer = segValue("fStatus") === "former";
+    const wantShift = segValue("fShift");
+    const nickNow = (p.nicknames || []).join(", ");
+    const nickWant = $("fNick").value.split(",").map(x => x.trim()).filter(Boolean).join(", ");
+    const steps = [];
+    if (wantFormer && !former) steps.push({ action: "former", name: p.name });
+    else if (!wantFormer && former) steps.push({ action: "restore", name: p.name, shift: wantShift });
+    else if (!wantFormer && wantShift !== shiftNow) steps.push({ action: "shift", name: p.name, shift: wantShift });
+    // Nicknames first: they are the one change that can be refused (a clash), so a refusal stops the save before anything else changes.
+    if (nickWant.toLowerCase() !== nickNow.toLowerCase()) steps.unshift({ action: "nicknames", name: p.name, nicknames: nickWant });
+    if (!steps.length) { closeModal(); return; }
+    send(steps);
+  };
 }
 
 function addBox(){
@@ -194,33 +212,8 @@ function addBox(){
   $("mOk").onclick = () => {
     const name = $("fName").value.trim();
     if (!name.includes(" ")) { $("mErr").textContent = "Please type their first and last name."; return; }
-    send({ action: "add", name: name, shift: segValue("fShift"), nicknames: $("fNick").value }, true);
+    send({ action: "add", name: name, shift: segValue("fShift"), nicknames: $("fNick").value });
   };
-}
-
-function nicknameBox(p){
-  modal(
-    '<h2>Nicknames for ' + esc(p.name) + '</h2><p>Other names they sign in or get written down as, so all their scans count as one person. Separate with commas.</p>' +
-    '<label for="fNick">Nicknames</label><input type="text" id="fNick" autocomplete="off" value="' + esc((p.nicknames || []).join(", ")) + '">' +
-    '<div class="err" id="mErr"></div>' +
-    '<div class="row2"><button class="ghost" id="mCancel">Cancel</button><button class="primary" id="mOk">Save</button></div>');
-  $("fNick").focus();
-  $("mOk").onclick = () => send({ action: "nicknames", name: p.name, nicknames: $("fNick").value }, true);
-}
-
-function confirmBox(title, text, okLabel, fn, danger){
-  modal('<h2>' + esc(title) + '</h2><p>' + esc(text) + '</p><div class="err" id="mErr"></div>' +
-    '<div class="row2"><button class="ghost" id="mCancel">Cancel</button><button class="' + (danger ? "danger" : "primary") + '" id="mOk">' + esc(okLabel) + '</button></div>');
-  $("mOk").onclick = fn;
-}
-
-function pickShift(title, text, okLabel, fn){
-  modal('<h2>' + esc(title) + '</h2><p>' + esc(text) + '</p>' +
-    '<div class="seg" id="fShift"><button data-s="Day" class="on">Day</button><button data-s="Night">Night</button></div>' +
-    '<div class="err" id="mErr"></div>' +
-    '<div class="row2"><button class="ghost" id="mCancel">Cancel</button><button class="primary" id="mOk">' + esc(okLabel) + '</button></div>');
-  segment("fShift");
-  $("mOk").onclick = () => fn(segValue("fShift"));
 }
 
 /* ---------- sign-in (passcode + name, once per device) ---------- */
@@ -253,23 +246,32 @@ async function post(body){
   } catch (e) { return { ok: false, error: "Couldn’t reach the system. Check your connection and try again." }; }
 }
 
-function send(body, keepOpenOnError){
+function send(steps){
+  if (!Array.isArray(steps)) steps = [steps];
   ensureSignedIn(async () => {
     const ok = $("mOk"); if (ok) { ok.disabled = true; ok.textContent = "Saving…"; }
-    const r = await post(Object.assign({ passcode: store.get("roster_pass"), by: store.get("roster_by") }, body));
+    let r = null; const done = [];
+    for (const body of steps) {
+      r = await post(Object.assign({ passcode: store.get("roster_pass"), by: store.get("roster_by") }, body));
+      if (!r.ok) break;
+      done.push(r.done);
+      if (Array.isArray(r.people)) { people = r.people; editable = !!r.editable; }
+    }
     if (!r.ok) {
       if (r.badPasscode) { store.del("roster_pass"); }
-      if ($("mErr")) { $("mErr").textContent = r.error || "That didn’t work."; if (ok) { ok.disabled = false; ok.textContent = "Try again"; } }
-      else toast(r.error || "That didn’t work.");
+      const msg = (done.length ? "Saved part of it (" + done.join("; ") + "), then: " : "") + (r.error || "That didn’t work.");
+      if ($("mErr")) { $("mErr").textContent = msg; if (ok) { ok.disabled = false; ok.textContent = "Try again"; } }
+      else toast(msg);
+      if (done.length) render();
       return;
     }
     closeModal();
-    if (Array.isArray(r.people)) { people = r.people; editable = !!r.editable; }
-    if (body.action === "former") tab = "Former";
-    else if (body.shift && body.shift !== "Former employee") tab = body.shift;
+    const moved = steps.find(x => x.action !== "nicknames");
+    if (moved && moved.action === "former") tab = "Former";
+    else if (moved && moved.shift) tab = moved.shift;
     $("search").value = "";
     render();
-    toast(r.done || "Saved");
+    toast(done.join(" · ") || "Saved");
   });
 }
 
@@ -285,7 +287,7 @@ function modal(html){
   bg.querySelectorAll("input").forEach(i => i.addEventListener("keydown", e => { if (e.key === "Enter" && $("mOk")) $("mOk").click(); }));
 }
 function closeModal(){ const m = $("modalBg"); if (m) m.remove(); }
-function segment(id){ $(id).querySelectorAll("button").forEach(b => b.onclick = () => { $(id).querySelectorAll("button").forEach(x => x.classList.remove("on")); b.classList.add("on"); }); }
+function segment(id, onChange){ $(id).querySelectorAll("button").forEach(b => b.onclick = () => { $(id).querySelectorAll("button").forEach(x => x.classList.remove("on")); b.classList.add("on"); if (onChange) onChange(); }); }
 function segValue(id){ const b = $(id).querySelector("button.on"); return b ? b.dataset.s : "Day"; }
 let toastTimer = null;
 function toast(msg){
