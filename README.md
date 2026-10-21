@@ -7,7 +7,7 @@ Barcode-scanning productivity system for the Quantum Fulfillment Services book p
 |---|---|---|---|
 | `scan-app/` | Phone app operators use to scan job sheets | Netlify site `storied-buttercream-0abf9a` | app v21 |
 | `leaderboard/` | TV / phone leaderboard | Netlify site `jade-dango-20f096` | page v17 |
-| `apps-script/` | Google Apps Script backend bound to the Sheet "New QMT Floor Productivity" | Google (one web-app deployment) | script v27 (v28 built, see `docs/BACKLOG.md`) |
+| `apps-script/` | Google Apps Script backend bound to the Sheet "New QMT Floor Productivity" | Google (one web-app deployment) | script v28 (deployment @30) |
 | `test/` | Node harness: fake Sheets + schedule; runs two `Code.gs` versions and diffs every board | `node test/regression.js` | — |
 
 Both Netlify sites deploy from this repo: each site's **publish directory** is its folder

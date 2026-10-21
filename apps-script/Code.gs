@@ -8,10 +8,9 @@
  *     all ~26k rows on every request. Column A is read alone first to find the
  *     block; rows inside the block but outside the window are filtered exactly
  *     as before, so out-of-order rows change nothing.
- *   - The finished board JSON is cached for 60 s per (week, period, from, to).
- *     Every scan and every improvement credit bumps a revision key, so the TV
- *     still updates within a minute of a scan; it just stops recomputing for
- *     every phone and TV that polls in between.
+ *   - The finished board JSON is cached for 45 s per (week, period, from, to),
+ *     so the board is never more than ~45 s behind. Roster and improvement-credit
+ *     changes clear it at once; scans don't (they arrive every few seconds).
  *   - The Public Schedule file is opened ONCE per request (it was opened twice:
  *     once for hours worked, once for "scanned every day").
  *   - Read-only requests (?board=1, ?scans=1) skip the tab-seeding housekeeping
@@ -161,8 +160,11 @@ var DEFAULT_STATIONS = [
 
 // v28: how far back the 15-minute retry sweep looks. Older rows are history.
 var RECONCILE_DAYS = 7;
-// v28: how long a finished board stays cached (seconds). The TV polls every 60 s.
-var BOARD_CACHE_SECS = 60;
+// v28: how long a finished board stays cached (seconds). The TV polls every 60 s,
+// so a board is never more than ~45 s behind the Scans tab. Scans deliberately do
+// NOT clear the cache: mid-shift they arrive every few seconds, which kept the
+// cache permanently empty (first live hour, 2026-10-21: ~17 s per request).
+var BOARD_CACHE_SECS = 45;
 
 /**
  * Make sure every tab and settings cell exists (seeding them on first run).
@@ -575,7 +577,6 @@ function doPost(e) {
       scan.station, scan.job, scan.employee, scan.qty,
       mis.pages || "", mis.misStatus, mis.reason || ""
     ]);
-    bumpScansRev_();   // v28: the board recomputes on its next request
 
     return json_({
       ok: true,
@@ -688,7 +689,6 @@ function reconcilePending_() {
     sheet.getRange(sheetRow, 8).setValue(mis.reason || "");
     changed++;
   }
-  if (changed) bumpScansRev_();
   return tried;
 }
 
@@ -731,7 +731,8 @@ function doGet(e) {
     var from = String(p.from || "");
     var to = String(p.to || "");
     // v28: serve the finished board from the cache for BOARD_CACHE_SECS. The key
-    // carries the scans revision, so a new scan always shows on the next request.
+    // carries a revision that roster and credit changes bump (rare, and people want
+    // to see those at once); new scans just wait out the cache.
     var cache = null, ck = null;
     try {
       cache = CacheService.getScriptCache();

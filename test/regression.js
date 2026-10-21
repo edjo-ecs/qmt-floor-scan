@@ -88,15 +88,18 @@ const first = run(newSrc, SCENARIOS[0], fx, env);
 const second = run(newSrc, SCENARIOS[0], fx, env);
 console.log(`\ncache: first request read ${first.cells} Scans cells, the repeat read ${second.cells} (hit = ${second.cells === 0 ? "yes" : "NO"})`);
 if (second.cells !== 0) failures++;
-// ...and a new scan invalidates it
+// ...a new scan does NOT clear it (scans arrive every few seconds mid-shift) …
 const api = mock.load(newSrc, env);
 api.doPost({ postData: { contents: JSON.stringify({ ts: new Date().toISOString(), station: "PUR", job: "2999999", employee: "Dale Jones", qty: 100 }) } });
 const third = run(newSrc, SCENARIOS[0], fx, env);
-console.log(`cache: after a new scan the next request read ${third.cells} cells (recomputed = ${third.cells > 0 ? "yes" : "NO"})`);
-if (third.cells === 0) failures++;
-const dale = third.out.rows.find(r => r.name === "Dale Jones");
+console.log(`cache: right after a new scan the next request read ${third.cells} cells (still cached = ${third.cells === 0 ? "yes" : "NO"})`);
+if (third.cells !== 0) failures++;
+// … but once the cache expires the scan is counted
+env._cache._clear();
+const fourth = run(newSrc, SCENARIOS[0], fx, env);
+const dale = fourth.out.rows.find(r => r.name === "Dale Jones");
 const daleBefore = first.out.rows.find(r => r.name === "Dale Jones");
-console.log(`cache: Dale Jones scans this week ${daleBefore.scans} -> ${dale.scans} (counted = ${dale.scans === daleBefore.scans + 1 ? "yes" : "NO"})`);
+console.log(`cache: after expiry Dale Jones scans this week ${daleBefore.scans} -> ${dale.scans} (counted = ${dale.scans === daleBefore.scans + 1 ? "yes" : "NO"})`);
 if (dale.scans !== daleBefore.scans + 1) failures++;
 
 // Reconcile sweep: how many rows each version re-submits to Admin

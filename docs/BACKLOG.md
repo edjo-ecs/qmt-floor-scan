@@ -1,6 +1,6 @@
 # Backlog (as of Oct 19 2026)
 
-## Done in v28 (built Oct 19, not yet deployed): board performance
+## Done in v28 (LIVE since Oct 21 2026, 3:09 pm; deployment version @30): board performance
 All four items from the plan, verified with `node test/regression.js` (every board identical
 to v27 on a 4,000-row fixture; see the commit for the measured read counts):
 1. `readScanBlock_` reads column A alone, finds the first and last row inside the needed range
@@ -18,7 +18,17 @@ Also: `reconcilePending_` now retries only the last `RECONCILE_DAYS` (7) days an
 ~4.5 min. **Still to confirm at deploy: does the 15-minute trigger exist?** If it does, it has
 been timing out every run (11,700 HTTP calls cannot finish inside 6 minutes).
 
-## Deploy v28
+## Deploy v28 — done 2026-10-21
+Deployed by Claude with clasp signed in as **ed@entourageyearbooks.com** (an editor). Nobody had the
+qmt-floorscan@ password. The live script was pulled first and matched main's v27 byte for byte.
+- @29 15:09: v28 as built. Board numbers matched v27; Robert off; scans after 15:09 still reached Admin.
+- @30 15:12: cache fix. Scans no longer clear the board cache (they arrived every few seconds, so the
+  cache never hit: ~17 s per request). Now 45 s TTL: ~2 s per request; a full rebuild is still ~15 s.
+- Script ID 17CgpK4yEsu_aBL0coYc_sw100OLoTZKcmmAm6JIEVyVfFqQz5YJy272_; live deployment
+  AKfycbzfENik… Deploying as ed@ means the web app may now run as ed@ (it is "execute as the user
+  deploying"). Admin calls and Sheet writes both work. If ed@ is ever locked, scanning stops until
+  someone redeploys.
+Still to do by hand:
 - `clasp push`, `clasp deploy -i <deploymentId> -d "v28: fast board"`, confirm `"v": 28`.
 - Add the hourly `housekeeping_` trigger (Triggers → Add → housekeeping_ → Time-driven → Hour timer).
 - Turn on HR roster editing: Apps Script editor → Project Settings → Script properties → add
