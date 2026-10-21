@@ -233,10 +233,17 @@ async function refresh(){
   }
 }
 
+/* v17: "Former employee" in the Names tab's Shift column = no zero line on the board.
+   Anyone who actually scanned (or has credited hours) in the window still shows. */
+function isFormerIdle(r){
+  return /former/i.test(r.shift || "") && !r.scans && !(r.manuals || []).length;
+}
+
 function render(data){
+  if (Array.isArray(data.rows)) data.rows = data.rows.filter(r => !isFormerIdle(r));
   lastData = data;
   document.getElementById("verline").textContent =
-    "page v16" + (data.v ? " \u00B7 script v" + data.v : "");
+    "page v17" + (data.v ? " \u00B7 script v" + data.v : "");
   const sel = document.getElementById("weekSel");
   const per = document.getElementById("periodSel");
   const det = document.getElementById("viewSel");
