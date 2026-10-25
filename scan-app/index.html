@@ -184,7 +184,7 @@ var __Html5QrcodeLibrary__;(()=>{var t={449:function(t,e,r){!function(t){"use st
 <body>
 <div id="app">
   <header>
-    <div class="brand">QMT <span>FLOOR SCAN</span> <small style="color:#4a4d54;font-weight:600;letter-spacing:0">v24</small></div>
+    <div class="brand">QMT <span>FLOOR SCAN</span> <small style="color:#4a4d54;font-weight:600;letter-spacing:0">v25</small></div>
     <div class="head-right">
       <div id="net">READY</div>
       <button id="fbBtn" title="Report a problem or idea">&#9873;</button>
@@ -276,6 +276,15 @@ let startSeq = 0;
 let currentAccept = null;   // where confirmed barcode values are delivered
 let scanActive = false;     // scan screen currently showing
 let idleStopTimer = null;   // full release only after long inactivity
+/* v22 (battery): the camera was kept open but paused for 2 minutes after every
+   scan, and 1080p at 15 fps while scanning. A paused camera is still a running
+   camera (sensor, image pipeline and screen compositing all stay busy), and most
+   of a shift is spent NOT scanning, so the camera was effectively on all shift.
+   Now: released CAMERA_IDLE_MS after leaving the scan screen (long enough for
+   scan -> quantity -> Next scan), released at once when the app is hidden or
+   the screen locks, and captured at 720p / 10 fps, which is plenty for a job
+   sheet barcode filling the scan band. Cost: ~1 s to reopen after a pause. */
+const CAMERA_IDLE_MS = 30000;
 const dedupe = { lastRead: null, lastCount: 0, lastEmitted: null };
 function resetDedupe(){ dedupe.lastRead = null; dedupe.lastCount = 0; dedupe.lastEmitted = null; }
 
@@ -330,8 +339,21 @@ function hideCamera(){
   if (w) w.style.display = "none";
   try { if (scanner && scanner.getState && scanner.getState() === 2) scanner.pause(true); } catch(e){}
   if (idleStopTimer) clearTimeout(idleStopTimer);
-  idleStopTimer = setTimeout(() => { idleStopTimer = null; stopScanner(); }, 120000);
+  idleStopTimer = setTimeout(() => { idleStopTimer = null; stopScanner(); }, CAMERA_IDLE_MS);
 }
+
+/* v22: app hidden (screen locked, switched away, phone in a pocket with the
+   app open) -> release the camera at once. Back again on the scan screen ->
+   reopen it. */
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden){
+    if (idleStopTimer){ clearTimeout(idleStopTimer); idleStopTimer = null; }
+    stopScanner();
+  } else if (scanActive){
+    startScanner(0);
+  }
+});
+window.addEventListener("pagehide", () => stopScanner());
 
 /* Confirmed-read pipeline: same value twice in a row, delivered once. */
 function handleHit(raw){
@@ -363,12 +385,12 @@ async function startScanner(attempt){
   if (mySeq !== startSeq) return;
 
   const config = {
-    fps: 15,
+    fps: 10,                      // v22: was 15; two matching reads still take 0.2 s
     qrbox: (vw, vh) => ({ width: Math.floor(vw * 0.95), height: 150 }),
     videoConstraints: {
       facingMode: "environment",
-      width: { ideal: 1920 },
-      height: { ideal: 1080 },
+      width: { ideal: 1280 },      // v22: was 1920x1080
+      height: { ideal: 720 },
       focusMode: "continuous"
     },
     experimentalFeatures: { useBarCodeDetectorIfSupported: true },
@@ -772,9 +794,12 @@ function showEmployeeStep(){
   const manualTake = () => {
     const m = $("manual");
     const v = m.value.trim();
-    if (/^\d+$/.test(v) || /^https?:/i.test(v)){
+    // v25: a name never has a digit, a slash, a ? or a web address in it. Before
+    // this, job numbers mixed with letters ("Y8S032") and job-label web addresses
+    // got through and credited a phantom person instead of the worker.
+    if (/\d|[\/?:=]|\.(com|asp)\b|^https?/i.test(v)){
       m.value = "";
-      m.placeholder = "that looks like a JOB \u2014 type a NAME";
+      m.placeholder = "that's a JOB label \u2014 type your NAME";
       return;
     }
     take(v);
@@ -1055,7 +1080,7 @@ function resetScan(keepStation){
 }
 
 /* ---------- v23: Report a problem or idea ---------- */
-const APP_VERSION = "v24";
+const APP_VERSION = "v25";
 function openFeedback(){
   closeFeedback();
   const bg = document.createElement("div");
