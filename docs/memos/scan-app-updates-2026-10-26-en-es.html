@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>What&#39;s new in the scan app / Novedades en la app de escaneo</title>
+<style>
+  @page { size: Letter; margin: 0.35in 0.5in; }
+  :root { --ink: #15171B; --ink2: #22252B; --paper: #F7F5F0; --orange: #E85D0F; --green: #2FA84F; --muted: #6B6F78; --line: #DEDBD3; }
+  * { box-sizing: border-box; }
+  body { font: 9.2pt/1.28 Arial, Helvetica, sans-serif; color: #111; margin: 0; }
+  .band { background: var(--ink); color: #fff; border-radius: 10px; padding: 10pt 14pt; display: flex; justify-content: space-between; align-items: center; gap: 10pt; }
+  .band h1 { margin: 0; font-size: 17pt; line-height: 1.15; }
+  .band h1 span { color: var(--orange); }
+  .band .es { font-size: 12.5pt; font-weight: 700; color: #B9BCC3; margin-top: 2pt; }
+  .band .meta { text-align: right; font-size: 8.5pt; color: #B9BCC3; line-height: 1.35; white-space: nowrap; }
+  .band .meta b { color: #fff; }
+  .flag { color: var(--orange); font-weight: 800; }
+  .glance { display: grid; grid-template-columns: 1fr 1fr; gap: 10pt; margin: 8pt 0 6pt; }
+  .glance div { border-left: 4px solid var(--orange); padding: 2pt 8pt; font-size: 10.5pt; font-weight: 700; }
+  .glance .es { border-left-color: var(--green); }
+  h2 { font-size: 9.5pt; margin: 6pt 0 3pt; letter-spacing: .5px; text-transform: uppercase; color: var(--muted); }
+  /* illustrations */
+  .shots { display: grid; grid-template-columns: 1.05fr 1.25fr 1.15fr; gap: 9pt; align-items: stretch; }
+  .shot { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 7pt; break-inside: avoid; }
+  .shot .cap { font-size: 8.5pt; color: var(--muted); margin-top: 5pt; line-height: 1.25; }
+  .shot .cap b { color: #111; }
+  .phone { background: var(--ink); border-radius: 8px; padding: 8pt; color: #fff; }
+  .phone .hdr { display: flex; align-items: center; justify-content: space-between; font-weight: 800; letter-spacing: 1.5px; font-size: 8pt; }
+  .phone .hdr .t span { color: var(--orange); }
+  .phone .hdr small { color: #8a8f98; font-weight: 600; letter-spacing: 0; margin-left: 3pt; }
+  .phone .hdr .r { display: flex; align-items: center; gap: 5pt; }
+  .phone .ready { color: #8a8f98; font-size: 7.5pt; }
+  .btnflag { border: 1px solid #34383F; border-radius: 5px; padding: 1pt 6pt; color: var(--orange); font-size: 11pt; font-weight: 800; background: #1b1d22; }
+  .gear { color: #8a8f98; font-size: 10pt; }
+  .ticket { background: var(--paper); color: #111; border-radius: 6px; margin-top: 18pt; padding: 4pt 8pt; font-size: 7pt; letter-spacing: 1.5px; font-weight: 700; color: #6B6F78; }
+  .ticket div { display: flex; justify-content: space-between; border-bottom: 1px solid #ddd; padding: 3pt 0; }
+  .ticket div:last-child { border: 0; }
+  .callout { position: relative; }
+  .callout .arrow { position: absolute; right: 24pt; top: 28pt; color: var(--orange); font-size: 15pt; font-weight: 800; line-height: 1; }
+  .callout .tag { position: absolute; right: 2pt; top: 44pt; background: var(--orange); color: #fff; font-size: 7.5pt; font-weight: 800; padding: 1.5pt 5pt; border-radius: 4px; }
+  .form { background: var(--ink2); border: 1px solid #34383F; border-radius: 8px; padding: 8pt; color: #fff; }
+  .form .t { font-weight: 800; font-size: 9pt; margin-bottom: 2pt; }
+  .form .s { color: #B9BCC3; font-size: 7pt; margin-bottom: 5pt; }
+  .form label { display: block; font-size: 6.5pt; color: #B9BCC3; letter-spacing: 1px; text-transform: uppercase; font-weight: 700; margin: 5pt 0 2pt; }
+  .seg { display: flex; gap: 4pt; }
+  .seg div { flex: 1; text-align: center; border: 1px solid #34383F; border-radius: 5px; padding: 3pt 2pt; font-size: 7pt; font-weight: 700; }
+  .seg .on { background: var(--orange); border-color: var(--orange); }
+  .box { background: var(--ink); border: 1px solid #34383F; border-radius: 5px; padding: 4pt 6pt; font-size: 7pt; color: #ddd; min-height: 20pt; }
+  .box.short { min-height: 0; }
+  .row2 { display: flex; gap: 4pt; margin-top: 6pt; }
+  .row2 div { flex: 1; text-align: center; border-radius: 5px; padding: 4pt; font-size: 7.5pt; font-weight: 800; }
+  .row2 .ghost { border: 1px solid #34383F; color: #B9BCC3; }
+  .row2 .send { background: var(--orange); }
+  .tv { background: var(--ink); border-radius: 8px; padding: 8pt; color: #fff; }
+  .tv .brand { font-weight: 800; letter-spacing: 1.5px; font-size: 8pt; }
+  .tv .brand span { color: var(--orange); }
+  .tv .rows { margin: 6pt 0; font-size: 7pt; color: #ccc; }
+  .tv .rows div { display: flex; justify-content: space-between; border-bottom: 1px solid #2a2d33; padding: 2.5pt 0; }
+  .tv .rows b { color: var(--green); }
+  .tv .foot { display: flex; justify-content: space-between; align-items: center; font-size: 6.5pt; color: #8a8f98; font-weight: 700; letter-spacing: .5px; margin-top: 4pt; }
+  .tv .foot .prize { color: var(--orange); }
+  .tv .foot .fb { border: 1px solid var(--orange); color: var(--orange); border-radius: 4px; padding: 2pt 5pt; font-size: 6.5pt; }
+  /* steps */
+  table { border-collapse: collapse; width: 100%; margin: 3pt 0 0; break-inside: avoid; }
+  th, td { border: 1px solid #bbb; padding: 2.5pt 6pt; text-align: left; vertical-align: top; font-size: 9pt; }
+  th { background: #eee; font-size: 8.5pt; }
+  td.n { width: 22pt; text-align: center; font-weight: 800; color: #fff; background: var(--orange); border-color: #bbb; font-size: 11pt; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10pt; margin-top: 4pt; }
+  .two h3 { margin: 0 0 3pt; font-size: 9.5pt; }
+  .two p { margin: 0 0 4pt; }
+  .ex { display: grid; grid-template-columns: 1fr 1fr; gap: 6pt; margin-top: 2pt; }
+  .ex div { border-radius: 6px; padding: 4pt 7pt; font-size: 8.5pt; }
+  .ex .good { background: #E8F4EC; border: 1px solid #A9D5B4; } .ex .bad { background: #FDECEA; border: 1px solid #F1B5AC; }
+  .ex b { display: block; font-size: 7.5pt; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 1pt; }
+  .ex .good b { color: #24863F; } .ex .bad b { color: #C23B2A; }
+  .foot { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 5pt; border-top: 2px solid var(--ink); padding-top: 4pt; font-size: 8pt; color: var(--muted); }
+  .foot b { color: #111; }
+
+  /* week-of-changes notice */
+  .stlist { background: var(--paper); border-radius: 6px; margin-top: 6pt; padding: 3pt 6pt; font-size: 7.2pt; color: #111; }
+  .stlist .g { font-size: 6.5pt; letter-spacing: 1.5px; color: #6B6F78; font-weight: 800; margin: 3pt 0 2pt; }
+  .stlist div.s { border: 1px solid #DEDBD3; border-radius: 4px; padding: 2pt 5pt; margin: 2pt 0; background: #fff; display: flex; justify-content: space-between; font-weight: 700; }
+  .stlist div.s.new { border-color: var(--orange); }
+  .stlist .new i { color: var(--orange); font-style: normal; font-size: 6pt; font-weight: 800; }
+  .mini { width: 100%; border-collapse: collapse; margin: 0; }
+  .mini th, .mini td { border: 0; border-bottom: 1px solid #e3e0d8; padding: 1.6pt 3pt; font-size: 7.3pt; }
+  .mini th { background: none; color: var(--muted); font-size: 6.5pt; letter-spacing: .5px; text-transform: uppercase; }
+  .mini td.r, .mini th.r { text-align: right; white-space: nowrap; }
+  .mini td.b { font-weight: 800; }
+  .tiers { display: grid; gap: 4pt; }
+  .tiers { gap: 3pt; } .tiers div { display: flex; justify-content: space-between; align-items: center; border-radius: 6px; padding: 4pt 8pt; font-weight: 800; font-size: 9pt; background: var(--ink); color: #fff; }
+  .tiers div span:last-child { color: var(--orange); font-size: 11pt; }
+  .tiers div.t1 span:last-child { color: #F4B183; } .tiers div.t2 span:last-child { color: #F08A4B; }
+  .batt { display: flex; align-items: center; gap: 6pt; margin-top: 6pt; font-size: 7.5pt; color: #ddd; }
+  .batt .cell { flex: none; width: 30pt; height: 13pt; border: 2px solid #ddd; border-radius: 3px; position: relative; padding: 1.5pt; }
+  .batt .cell::after { content: ""; position: absolute; right: -5pt; top: 3pt; width: 3pt; height: 5pt; background: #ddd; border-radius: 1px; }
+  .batt .lvl { height: 100%; background: var(--green); border-radius: 1px; }
+  .glance div { font-size: 9.6pt; }
+  .shots { grid-template-columns: 1.3fr 1fr; }
+  .phone .hdr { letter-spacing: 1px; } .phone .hdr .t { white-space: nowrap; }
+  table td, table th { padding: 2pt 5pt; font-size: 8.7pt; }
+  .shot .cap { font-size: 8.2pt; }
+  .phone .hdr .r { margin-left: 8pt; }
+</style>
+</head>
+<body>
+<div class="band">
+  <div>
+    <h1>What's new in the <span>scan app</span></h1>
+    <div class="es">Novedades en la <span class="flag">app de escaneo</span></div>
+  </div>
+  <div class="meta">October 26, 2026 &middot; 26 de octubre de 2026<br><b>To / Para:</b> Everyone on the floor &middot; Todo el piso<br><b>From / De:</b> Ed Jo, CFO</div>
+</div>
+
+<div class="glance">
+  <div>Four changes this week: the app is easier on your battery, PUR and the 3-knife trimmer have new names, the name box is stricter, and weekly Nectar points now go to everyone at 50% or more, on a graduated scale.</div>
+  <div class="es">Cuatro cambios esta semana: la app gasta menos batería, PUR y la cortadora de 3 cuchillas tienen nombres nuevos, la casilla del nombre es más estricta, y los puntos Nectar semanales ahora son para todos los que lleguen al 50% o más, en escala.</div>
+</div>
+
+<h2>At a glance &middot; De un vistazo</h2>
+<div class="shots">
+  <div class="shot">
+    <div class="phone">
+      <div class="hdr"><div class="t">QMT <span>FLOOR SCAN</span><small>v26</small></div><div class="r"><span class="ready">READY</span><span class="btnflag">&#9873;</span><span class="gear">&#9881;</span></div></div>
+      <div class="stlist">
+        <div class="g">BINDING</div>
+        <div class="s new"><span>PUR BQ 280</span><i>NEW</i></div>
+        <div class="s new"><span>PUR BQ 470</span><i>NEW</i></div>
+        <div class="s new"><span>3 Knife Trim/InfiniTrim</span><i>NEW</i></div>
+        <div class="s"><span>Casing-In Super</span><span></span></div>
+      </div>
+      <div class="batt"><div class="cell"><div class="lvl" style="width:82%"></div></div><span>Camera off when you're not scanning &middot; Cámara apagada si no escaneas</span></div>
+    </div>
+    <div class="cap"><b>Close the app and open it again</b> to get v26. Pick the PUR machine you're on.<br><b>Cierra la app y ábrela de nuevo</b> para tener v26. Elige la máquina PUR en la que estás.</div>
+  </div>
+  <div class="shot">
+    <div class="tiers"><div><span>50 &ndash; 59%</span><span>50 pts</span></div><div><span>60 &ndash; 69%</span><span>60 pts</span></div><div><span>70 &ndash; 79%</span><span>70 pts</span></div><div><span>80 &ndash; 89%</span><span>80 pts</span></div><div><span>90 &ndash; 99%</span><span>90 pts</span></div><div><span>100% +</span><span>100 pts</span></div></div>
+    <div class="cap"><b>Weekly Nectar points</b>, on a graduated scale: your week % on the leaderboard (Monday to Sunday), rounded down to the nearest 10%, up to 100 points. Vickie gives them out every Monday and posts the list.<br><b>Puntos Nectar semanales</b>, en escala: tu % de la semana en el tablero (lunes a domingo), redondeado hacia abajo al 10% más cercano, hasta 100 puntos. Vickie los entrega cada lunes y publica la lista.</div>
+  </div>
+</div>
+
+<h2>What changed &middot; Qué cambió</h2>
+<table>
+  <tr><th style="width:22pt"></th><th>English</th><th>Español</th></tr>
+  <tr><td class="n">1</td><td><b>Battery.</b> The camera now turns off 30 seconds after you leave the scan screen, and right away when the phone locks. After a break it takes about a second to come back.</td><td><b>Batería.</b> La cámara ahora se apaga 30 segundos después de salir de la pantalla de escaneo, y de inmediato cuando se bloquea el teléfono. Después de una pausa tarda como un segundo en volver.</td></tr>
+  <tr><td class="n">2</td><td><b>PUR is now two stations:</b> <b>PUR BQ 280</b> and <b>PUR BQ 470</b>. Scan at the machine you're actually on.</td><td><b>PUR ahora son dos estaciones:</b> <b>PUR BQ 280</b> y <b>PUR BQ 470</b>. Escanea en la máquina donde realmente estás.</td></tr>
+  <tr><td class="n">3</td><td><b>3 Knife Trimming</b> is now called <b>3 Knife Trim/InfiniTrim</b>. Same machine, same step: use it for InfiniTrim work too.</td><td><b>3 Knife Trimming</b> ahora se llama <b>3 Knife Trim/InfiniTrim</b>. Misma máquina, mismo paso: úsala también para el trabajo de InfiniTrim.</td></tr>
+  <tr><td class="n">4</td><td><b>Name box.</b> If you type your name by hand, the app won't accept a job number or a web address. Tap your name on the list, or type your real name.</td><td><b>Casilla del nombre.</b> Si escribes tu nombre a mano, la app no acepta un número de trabajo ni una dirección web. Toca tu nombre en la lista, o escribe tu nombre real.</td></tr>
+</table>
+
+<div class="foot">
+  <div><b>Something not working?</b> Tap <span class="flag">&#9873; Report</span> in the app. New people or name fixes: Vickie.<br><b>¿Algo no funciona?</b> Toca <span class="flag">&#9873; Reportar</span> en la app. Personas nuevas o nombres: Vickie.</div>
+  <div style="text-align:right"><b>Thank you for scanning every shift. It's how we see your work.</b><br><b>Gracias por escanear cada turno. Así vemos tu trabajo.</b> &mdash; Ed</div>
+</div>
+
+</body>
+</html>
