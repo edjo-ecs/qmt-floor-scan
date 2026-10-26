@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#15171B">
+<title>QMT Nectar Memo</title>
+<style>
+  :root { --ink: #15171B; --bg: #F4F3EF; --line: #DEDBD3; --muted: #6B6F78; --orange: #E85D0F; --green: #24863F; --chip: #EEECE6; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  header { background: var(--ink); color: #fff; padding: 14px 16px; }
+  header .in { max-width: 860px; margin: 0 auto; display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .brand { font-weight: 800; letter-spacing: 2px; font-size: 20px; }
+  .brand span { color: var(--orange); }
+  .who { font-size: 13px; color: #B9BCC3; } .who a { color: #fff; }
+  main { max-width: 860px; margin: 0 auto; padding: 16px; }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  select, button { font: inherit; font-weight: 700; border-radius: 10px; padding: 8px 12px; border: 1px solid var(--line); background: #fff; color: var(--ink); cursor: pointer; }
+  button.primary { background: var(--orange); border-color: var(--orange); color: #fff; }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; margin-bottom: 12px; }
+  h2 { margin: 0 0 4px; font-size: 18px; letter-spacing: .5px; }
+  .sub { color: var(--muted); font-size: 14px; margin-bottom: 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .tot td { font-weight: 800; border-bottom: 0; }
+  .memo h1 { font-size: 22px; margin: 0 0 2px; }
+  .memo h3 { margin: 14px 0 4px; font-size: 16px; }
+  .memo .tier { columns: 2; column-gap: 24px; margin: 0 0 4px; padding-left: 18px; }
+  .memo .rules { font-size: 14px; color: #333; }
+  .lang { border-top: 2px solid var(--ink); margin-top: 16px; padding-top: 12px; }
+  .note { border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; font-size: 15px; background: #FFF6DB; border: 1px solid #F0D98A; }
+  .muted { color: var(--muted); }
+  @media (max-width: 560px) { .memo .tier { columns: 1; } }
+  @media print {
+    header, .bar, .hr-only, .note { display: none !important; }
+    body { background: #fff; } main { padding: 0; max-width: none; }
+    .card { border: 0; padding: 0; }
+  }
+</style>
+</head>
+<body>
+<header><div class="in">
+  <div class="brand">QMT <span>NECTAR MEMO</span></div>
+  <div class="who"><a href="/">&larr; Leaderboard</a></div>
+</div></header>
+<main>
+  <div class="bar">
+    <select id="weekSel" title="Week"></select>
+    <button class="primary" id="printBtn">Print memo</button>
+    <button id="copyBtn">Copy memo text</button>
+  </div>
+  <div id="out"><div class="card muted">Loading last week&#8230; this can take up to 30 seconds.</div></div>
+</main>
+<script>
+/* Weekly Nectar award (Ed, 2026-10-26): everyone whose weekly rate on the
+   board reaches a tier earns that tier's points (the old Scan Every Day award
+   is gone). Week = the board's Mon-Sun week; rate = the board's own number
+   (work vs. station targets in effect when scanned, prorated to scheduled
+   hours, 150%/day cap). Change the tiers here and nowhere else. */
+const TIERS = [ { min: 100, pts: 150 }, { min: 75, pts: 100 }, { min: 50, pts: 50 } ];
+const API = "https://script.google.com/macros/s/AKfycbzfENikUcV-2mjQeTDqovKEsX4ihj2WpgZTKB6L_HLxnHyUefxT-fPXw_AYNivnhZRbOg/exec";
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const ptsFor = rate => { const t = TIERS.find(t => rate >= t.min); return t ? t.pts : 0; };
+let memoText = "";
+
+function dates(data){
+  const s = new Date(data.weekStartISO), e = new Date(new Date(data.weekEndISO).getTime() - 86400000);
+  const o = { timeZone: "America/New_York", weekday: "long", month: "long", day: "numeric" };
+  return {
+    en: s.toLocaleDateString("en-US", o) + " to " + e.toLocaleDateString("en-US", o),
+    es: "del " + s.toLocaleDateString("es-US", o) + " al " + e.toLocaleDateString("es-US", o)
+  };
+}
+
+function render(data){
+  const rows = (data.rows || [])
+    .filter(r => !/former/i.test(r.shift || ""))
+    .map(r => ({ name: r.name, rate: r.rate, pts: ptsFor(r.rate) }))
+    .filter(r => r.pts > 0)
+    .sort((a, b) => b.rate - a.rate);
+  const d = dates(data);
+  const total = rows.reduce((s, r) => s + r.pts, 0);
+  const tierNames = TIERS.map(t => ({ t, people: rows.filter(r => r.pts === t.pts).map(r => r.name).sort((a, b) => a.localeCompare(b)) }))
+    .filter(g => g.people.length);
+  const rulesEn = "Everyone who reached 50% or more of their station targets for the week earns Nectar points: " +
+    TIERS.slice().reverse().map(t => t.min + "%+ = " + t.pts + " points").join(", ") +
+    ". Your percent is your scanned work against your station targets, for the hours you were scheduled.";
+  const rulesEs = "Todos los que llegaron al 50% o más de las metas de su estación en la semana ganan puntos Nectar: " +
+    TIERS.slice().reverse().map(t => t.min + "%+ = " + t.pts + " puntos").join(", ") +
+    ". Tu porcentaje es tu trabajo escaneado comparado con las metas de tu estación, según las horas programadas.";
+
+  let html = "";
+  if (!rows.length) html += '<div class="note">Nobody reached 50% this week.</div>';
+
+  // For HR: who gets what, with the percent (the floor memo leaves percents off: points are not a ranking)
+  html += '<div class="card hr-only"><h2>For Nectar entry (HR)</h2><div class="sub">' + esc(data.label) +
+    ' &middot; ' + rows.length + ' people &middot; ' + total + ' points total</div><table><tr><th>Name</th><th style="text-align:right">Week %</th><th style="text-align:right">Points</th></tr>' +
+    rows.map(r => '<tr><td>' + esc(r.name) + '</td><td class="n">' + r.rate.toFixed(1) + '%</td><td class="n">' + r.pts + '</td></tr>').join("") +
+    '<tr class="tot"><td>Total</td><td></td><td class="n">' + total + '</td></tr></table></div>';
+
+  // The memo for the board, English then Spanish
+  const list = (label) => tierNames.map(g => '<h3>' + g.t.pts + ' ' + label + ' (' + g.t.min + '%+)</h3><ul class="tier">' +
+    g.people.map(n => '<li>' + esc(n) + '</li>').join("") + '</ul>').join("");
+  html += '<div class="card memo">' +
+    '<h1>NECTAR WINNERS &ndash; ' + esc(d.en) + '</h1>' +
+    '<div class="rules">' + esc(rulesEn) + '</div>' + list("points") +
+    (data.team ? '<p class="rules">Team goal: ' + Number(data.team.units).toLocaleString() + ' of ' + Number(data.team.goal).toLocaleString() + ' books through Label and Ship (' + data.team.pct + '%).</p>' : '') +
+    '<div class="lang"><h1>GANADORES NECTAR &ndash; ' + esc(d.es) + '</h1>' +
+    '<div class="rules">' + esc(rulesEs) + '</div>' + list("puntos") +
+    (data.team ? '<p class="rules">Meta del equipo: ' + Number(data.team.units).toLocaleString() + ' de ' + Number(data.team.goal).toLocaleString() + ' libros por Label and Ship (' + data.team.pct + '%).</p>' : '') +
+    '</div></div>';
+  $("out").innerHTML = html;
+
+  const txtList = (label) => tierNames.map(g => g.t.pts + " " + label + " (" + g.t.min + "%+):\n" + g.people.join("\n")).join("\n\n");
+  memoText = "NECTAR WINNERS - " + d.en + "\n" + rulesEn + "\n\n" + txtList("points") +
+    "\n\nGANADORES NECTAR - " + d.es + "\n" + rulesEs + "\n\n" + txtList("puntos") + "\n";
+}
+
+async function load(week){
+  $("out").innerHTML = '<div class="card muted">Loading&#8230; this can take up to 30 seconds.</div>';
+  try {
+    const r = await fetch(API + "?board=1&week=" + week);
+    const data = await r.json();
+    if (!$("weekSel").options.length) {
+      (data.weeks || []).slice(1, 9).forEach(w => $("weekSel").add(new Option(w.label, w.offset)));
+      $("weekSel").value = String(week);
+    }
+    render(data);
+  } catch (e) {
+    $("out").innerHTML = '<div class="note">Could not load the board. Check the connection and reload.</div>';
+  }
+}
+
+$("weekSel").onchange = () => load(Number($("weekSel").value));
+$("printBtn").onclick = () => window.print();
+$("copyBtn").onclick = async () => {
+  try { await navigator.clipboard.writeText(memoText); $("copyBtn").textContent = "Copied"; }
+  catch (e) { $("copyBtn").textContent = "Copy failed"; }
+  setTimeout(() => { $("copyBtn").textContent = "Copy memo text"; }, 1500);
+};
+load(1);   // last complete week; Monday is when the points go out
+</script>
+</body>
+</html>
