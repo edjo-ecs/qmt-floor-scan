@@ -1,6 +1,14 @@
 /**
- * QMT Floor Scan — Google Apps Script backend (v30: open-report count on the board)
+ * QMT Floor Scan — Google Apps Script backend (v31: racetrack step per station)
  * NOTHING TO EDIT IN THIS FILE. Paste it as-is over the old code.
+ *
+ * NEW IN v31 (2026-10-26, over v30 — scoring unchanged):
+ *   - RACETRACK STEP PER STATION. Config column B can hold the Admin work type
+ *     (wtype_id, e.g. 1038 = B - 3 Knife Cut) that a station's scans complete.
+ *     When set, it is sent as wtype_id and Admin uses it instead of its own
+ *     hard-coded station list, so a new station can move the racetrack without
+ *     an Admin deploy. Blank = Admin's own mapping, exactly as before.
+ *     APPROVAL work types (sign-offs, not floor operations) are never sent.
  *
  * NEW IN v30 (2026-10-21, over v29 — scoring unchanged):
  *   - The board response carries feedbackOpen: how many Feedback rows are New
@@ -630,6 +638,8 @@ function callMis_(scan, scanId) {
     operators: scan.employee,        // "badge" or "badge1+badge2" as-is
     ts: scan.ts
   };
+  var wt = stationWtype_(scan.station);   // v31: Config column B overrides Admin's map
+  if (wt) payload.wtype_id = wt;
 
   try {
     var res = UrlFetchApp.fetch(base, {
@@ -1130,7 +1140,7 @@ function buildLeaderboard_(ss, weekOffset, period, fromStr, toStr) {
   return {
     ok: true,
     app: "qmt-floor-scan",
-    v: 30,
+    v: 31,
     dailyCapPct: Math.round(pts.dailyCap * 100),
     nectarWeek: nct.week,
     upcomingRates: upcomingRates,
@@ -1334,7 +1344,7 @@ function handleImprovement_(ss, data) {
     var row = findImprovementRow_(sh, ref);
 
     if (data.type === "improvement") {
-      if (row) return { ok: true, already: true, v: 30 };
+      if (row) return { ok: true, already: true, v: 31 };
       var mins = Number(data.minutes) || 0;
       if (mins <= 0 || mins > 720) return { ok: false, error: "bad minutes" };
       var hours = Math.round((mins / 60) * 1000) / 1000;   // v22: 3 decimals (2 min = 0.033 hr)
@@ -1347,12 +1357,12 @@ function handleImprovement_(ss, data) {
       sh.appendRow([d, String(data.name || "").trim(), activity, hours,
                     String(data.approver || "").trim(), ref]);
       bumpScansRev_();   // v28: credits change the board too
-      return { ok: true, v: 30 };
+      return { ok: true, v: 31 };
     }
 
     if (data.type === "improvement_undo") {
       if (row) { sh.deleteRow(row); bumpScansRev_(); }
-      return { ok: true, removed: !!row, v: 30 };
+      return { ok: true, removed: !!row, v: 31 };
     }
 
     return { ok: false, error: "unknown type" };
@@ -1402,7 +1412,7 @@ function scanWindow_(ss, p) {
       }
     });
   }
-  return { ok: true, v: 30, count: count, stations: Object.keys(stations) };
+  return { ok: true, v: 31, count: count, stations: Object.keys(stations) };
 }
 
 /* =====================================================================
@@ -1817,7 +1827,7 @@ function rosterView_(ss) {
     });
   }
   var pass = PropertiesService.getScriptProperties().getProperty("ROSTER_PASSCODE");
-  return { ok: true, app: "qmt-floor-scan", v: 30, editable: !!pass, shifts: ROSTER_SHIFTS, people: people };
+  return { ok: true, app: "qmt-floor-scan", v: 31, editable: !!pass, shifts: ROSTER_SHIFTS, people: people };
 }
 
 /** POST { type:"roster", passcode, by, action, name, shift, nicknames } */
@@ -1966,7 +1976,7 @@ function handleFeedback_(ss, data) {
     fbClean_(data.from, 60), message, fbClean_(data.station, 60), fbClean_(data.job, 40), fbClean_(data.device, 120),
     "New", "", "", ""]);
   bumpScansRev_();   // v30: the board's open-report count changes
-  return { ok: true, id: id, v: 30 };
+  return { ok: true, id: id, v: 31 };
 }
 
 function feedbackAuth_(data) {
@@ -2006,7 +2016,7 @@ function feedbackList_(ss, data) {
     });
   }
   items.sort(function (a, b) { return b.whenMs - a.whenMs; });
-  return { ok: true, v: 30, statuses: FEEDBACK_STATUSES, items: items };
+  return { ok: true, v: 31, statuses: FEEDBACK_STATUSES, items: items };
 }
 
 /** POST { type:"feedback_decide", passcode, by, id, status, note } */
@@ -2051,4 +2061,31 @@ function feedbackOpenCount_(ss) {
     });
     return n;
   } catch (e) { return null; }
+}
+
+
+/** v31: Admin work types in the APPROVAL category — sign-offs a floor scan can
+ *  never attest to, so Config column B may not point at them. */
+var APPROVAL_WTYPES_ = [1001, 1008, 1015, 1036, 1068, 1069, 1071, 1072, 1073, 1076];
+
+/** v31: the racetrack work type (wtype_id) Config column B gives this station,
+ *  or null to leave the mapping to Admin. Read once per execution. */
+var STATION_WTYPES_ = null;
+function stationWtype_(station) {
+  if (STATION_WTYPES_ === null) {
+    STATION_WTYPES_ = {};
+    try {
+      var config = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Config");
+      if (config && config.getLastRow() >= 2) {
+        config.getRange(2, 1, config.getLastRow() - 1, 2).getValues().forEach(function (r) {
+          var name = String(r[0]).trim().toLowerCase();
+          var m = String(r[1]).match(/\d{4}/);
+          if (!name || !m) return;
+          var id = Number(m[0]);
+          if (APPROVAL_WTYPES_.indexOf(id) === -1) STATION_WTYPES_[name] = id;
+        });
+      }
+    } catch (e) {}
+  }
+  return STATION_WTYPES_[String(station).trim().toLowerCase()] || null;
 }

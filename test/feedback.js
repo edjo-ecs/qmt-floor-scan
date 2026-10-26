@@ -77,7 +77,7 @@ check("bad status refused", !post({ type: "feedback_decide", passcode: "Review 7
 const env2 = setup("x");
 env2.post({ type: "feedback", app: "scan-app", kind: "bug", message: "board check" });
 const board = JSON.parse(mock.load(src, env2.env).doGet({ parameter: { board: "1", week: "0", period: "week" } }).getContent());
-check("board still answers after feedback (v30)", board.ok && board.v === 30 && board.rows.length > 0);
+check("board still answers after feedback (v31)", board.ok && board.v === 31 && board.rows.length > 0);
 
 // v30: the board carries the open-report count, and it moves at once
 {
