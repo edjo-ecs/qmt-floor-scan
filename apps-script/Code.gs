@@ -1,6 +1,15 @@
 /**
- * QMT Floor Scan — Google Apps Script backend (v31: racetrack step per station)
+ * QMT Floor Scan — Google Apps Script backend (v32: count from photo)
  * NOTHING TO EDIT IN THIS FILE. Paste it as-is over the old code.
+ *
+ * NEW IN v32 (2026-11-02, over v31 — scoring unchanged):
+ *   - COUNT FROM PHOTO. On the "How many?" step the scan app (v27+) can send a
+ *     photo of the stack; Claude counts it and the phone offers the number for
+ *     the person to check and submit. Every count goes in a new "Counts" tab with
+ *     the quantity actually submitted beside it, so accuracy keeps being measured.
+ *     Off until Script Property ANTHROPIC_API_KEY is set (the GET reply's
+ *     countFromPhoto tells the phone whether to show the button). Scans
+ *     themselves are untouched. See the "v32 — Count from photo" block at the end.
  *
  * NEW IN v31 (2026-10-26, over v30 — scoring unchanged):
  *   - RACETRACK STEP PER STATION. Config column B can hold the Admin work type
@@ -578,6 +587,8 @@ function doPost(e) {
     if (data.type === "feedback") return json_(handleFeedback_(ss, data));              // v29: a report from the floor
     if (data.type === "feedback_list") return json_(feedbackList_(ss, data));          // v29: review page
     if (data.type === "feedback_decide") return json_(handleFeedbackDecide_(ss, data)); // v29: review page
+    if (data.type === "count") return json_(handleCount_(ss, data));                    // v32: count from photo
+    if (data.type === "count_used") return json_(handleCountUsed_(ss, data));          // v32: qty submitted after a count
     if (data.type) return json_(handleImprovement_(ss, data));   // v21: 2-Minute Improvement credits
 
     var scan = {
@@ -774,7 +785,8 @@ function doGet(e) {
     }
     return jsonText_(text);
   }
-  return json_({ ok: true, app: "qmt-floor-scan", stations: getStations_(ss), roster: getRoster_(ss) });
+  return json_({ ok: true, app: "qmt-floor-scan", stations: getStations_(ss), roster: getRoster_(ss),
+    countFromPhoto: !!PropertiesService.getScriptProperties().getProperty("ANTHROPIC_API_KEY") });   // v32
 }
 
 /** This week's totals per employee (week starts Monday 00:00, sheet timezone). */
@@ -1140,7 +1152,7 @@ function buildLeaderboard_(ss, weekOffset, period, fromStr, toStr) {
   return {
     ok: true,
     app: "qmt-floor-scan",
-    v: 31,
+    v: 32,
     dailyCapPct: Math.round(pts.dailyCap * 100),
     nectarWeek: nct.week,
     upcomingRates: upcomingRates,
@@ -1344,7 +1356,7 @@ function handleImprovement_(ss, data) {
     var row = findImprovementRow_(sh, ref);
 
     if (data.type === "improvement") {
-      if (row) return { ok: true, already: true, v: 31 };
+      if (row) return { ok: true, already: true, v: 32 };
       var mins = Number(data.minutes) || 0;
       if (mins <= 0 || mins > 720) return { ok: false, error: "bad minutes" };
       var hours = Math.round((mins / 60) * 1000) / 1000;   // v22: 3 decimals (2 min = 0.033 hr)
@@ -1357,12 +1369,12 @@ function handleImprovement_(ss, data) {
       sh.appendRow([d, String(data.name || "").trim(), activity, hours,
                     String(data.approver || "").trim(), ref]);
       bumpScansRev_();   // v28: credits change the board too
-      return { ok: true, v: 31 };
+      return { ok: true, v: 32 };
     }
 
     if (data.type === "improvement_undo") {
       if (row) { sh.deleteRow(row); bumpScansRev_(); }
-      return { ok: true, removed: !!row, v: 31 };
+      return { ok: true, removed: !!row, v: 32 };
     }
 
     return { ok: false, error: "unknown type" };
@@ -1412,7 +1424,7 @@ function scanWindow_(ss, p) {
       }
     });
   }
-  return { ok: true, v: 31, count: count, stations: Object.keys(stations) };
+  return { ok: true, v: 32, count: count, stations: Object.keys(stations) };
 }
 
 /* =====================================================================
@@ -1827,7 +1839,7 @@ function rosterView_(ss) {
     });
   }
   var pass = PropertiesService.getScriptProperties().getProperty("ROSTER_PASSCODE");
-  return { ok: true, app: "qmt-floor-scan", v: 31, editable: !!pass, shifts: ROSTER_SHIFTS, people: people };
+  return { ok: true, app: "qmt-floor-scan", v: 32, editable: !!pass, shifts: ROSTER_SHIFTS, people: people };
 }
 
 /** POST { type:"roster", passcode, by, action, name, shift, nicknames } */
@@ -1976,7 +1988,7 @@ function handleFeedback_(ss, data) {
     fbClean_(data.from, 60), message, fbClean_(data.station, 60), fbClean_(data.job, 40), fbClean_(data.device, 120),
     "New", "", "", ""]);
   bumpScansRev_();   // v30: the board's open-report count changes
-  return { ok: true, id: id, v: 31 };
+  return { ok: true, id: id, v: 32 };
 }
 
 function feedbackAuth_(data) {
@@ -2016,7 +2028,7 @@ function feedbackList_(ss, data) {
     });
   }
   items.sort(function (a, b) { return b.whenMs - a.whenMs; });
-  return { ok: true, v: 31, statuses: FEEDBACK_STATUSES, items: items };
+  return { ok: true, v: 32, statuses: FEEDBACK_STATUSES, items: items };
 }
 
 /** POST { type:"feedback_decide", passcode, by, id, status, note } */
@@ -2088,4 +2100,151 @@ function stationWtype_(station) {
     } catch (e) {}
   }
   return STATION_WTYPES_[String(station).trim().toLowerCase()] || null;
+}
+
+/* =====================================================================
+ * v32 — Count from photo
+ *
+ * On the "How many?" step a person can photograph the stack instead of
+ * counting it. The phone sends the photo (an overview plus the top and
+ * bottom halves at higher detail); Claude counts the items and the number
+ * is offered to the person, who checks it, fixes it if needed, and submits
+ * the scan as normal. Nothing is ever submitted on the AI's word alone.
+ *
+ * Switched on by Script Property ANTHROPIC_API_KEY (blank = the button does
+ * not appear). Optional: COUNT_MODEL (default claude-opus-5-5), COUNT_EFFORT
+ * (default high). Every count is logged in a "Counts" tab, and the quantity
+ * actually submitted is written back, so accuracy can be checked over time:
+ *   A Id | B When | C Employee | D Station | E Job | F Item | G AI count |
+ *   H Confidence | I AI note | J Submitted qty | K Seconds | L Model
+ * ===================================================================== */
+
+var COUNT_HEADER = ["Id", "When", "Employee", "Station", "Job", "Item", "AI count", "Confidence", "AI note", "Submitted qty", "Seconds", "Model"];
+var COUNT_ITEMS = ["books", "covers", "boxes", "rolls", "packages", "other"];
+
+var COUNT_SYSTEM_ =
+  "You count physical items in phone photos taken on the floor of a book manufacturing plant " +
+  "(yearbooks, hardcover and softcover books, covers, cartons, paper packages, rolls). A person " +
+  "will check your number before it is used, but a wrong number that looks confident is worse " +
+  "than no number, so say when you are unsure.\n\n" +
+  "You get up to three images of the SAME scene: the whole photo, then its top half and its " +
+  "bottom half at higher detail. Use the halves to count thin edges; do not add the halves to " +
+  "the whole photo or to each other (they overlap the whole photo, and may overlap each other slightly).\n\n" +
+  "How to count:\n" +
+  "- Count only the item type you are asked for. Ignore loose proof sheets, slip sheets, cover " +
+  "sheets laid on top, pallets, carts and anything in the background that is clearly not part of the count.\n" +
+  "- Stacked books are often laid in groups of 5 that alternate (spines out, then page edges out). " +
+  "When you see that pattern, count the groups and multiply, then check the leftover.\n" +
+  "- When there are several stacks, count each stack separately and add them up. List each stack in 'stacks'.\n" +
+  "- For a stack you can only partly see (behind another stack, at a steep angle, cut off by the " +
+  "frame, under wrap or glare), still give your best estimate, but set confidence to low and say " +
+  "which stack in the note.\n" +
+  "- For boxes on a pallet, count the boxes you can see and the ones that must be there to fill " +
+  "the layers; say in the note if you assumed hidden boxes.\n" +
+  "- Confidence: high = every item is visible and you counted each one; medium = small doubt " +
+  "(one or two items hard to separate); low = items hidden, edges merge, or the photo does not " +
+  "show the whole count.\n" +
+  "- The note is shown to the person on a phone: one short plain sentence, e.g. " +
+  "'Two stacks of 25, alternating groups of 5.' or 'Back stack is hidden; retake one stack per photo.'";
+
+var COUNT_SCHEMA_ = {
+  type: "object",
+  properties: {
+    count: { type: "integer", description: "Your best total count of the requested item." },
+    confidence: { type: "string", enum: ["high", "medium", "low"] },
+    stacks: { type: "array", items: { type: "integer" }, description: "Count per stack or group, left to right." },
+    note: { type: "string", description: "One short plain sentence for the person holding the phone." }
+  },
+  required: ["count", "confidence", "stacks", "note"],
+  additionalProperties: false
+};
+
+/** The Messages API request for one count. Pure, so test/count-eval.js can send
+ *  the exact same request from a laptop. images: base64 JPEG strings. */
+function buildCountRequest_(images, item, model, effort) {
+  var what = String(item || "").trim().toLowerCase().slice(0, 40) || "items";
+  var content = [];
+  var labels = ["Whole photo:", "Top half, more detail:", "Bottom half, more detail:"];
+  images.slice(0, 3).forEach(function (b64, i) {
+    content.push({ type: "text", text: labels[i] || "Detail:" });
+    content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: b64 } });
+  });
+  content.push({ type: "text", text: "Count the " + what + " in this photo." });
+  return {
+    model: model || "claude-opus-5-5",
+    max_tokens: 16000,
+    system: COUNT_SYSTEM_,
+    output_config: { effort: effort || "high", format: { type: "json_schema", schema: COUNT_SCHEMA_ } },
+    fallbacks: "default",
+    messages: [{ role: "user", content: content }]
+  };
+}
+
+/** Pull the count out of a Messages API response body (already parsed). */
+function parseCountResponse_(body) {
+  if (!body || body.type === "error") throw new Error((body && body.error && body.error.message) || "no response");
+  if (body.stop_reason === "refusal") throw new Error("the AI declined this photo");
+  if (body.stop_reason === "max_tokens") throw new Error("the AI ran out of room");
+  var text = (body.content || []).filter(function (c) { return c.type === "text"; }).map(function (c) { return c.text; }).join("");
+  var out = JSON.parse(text);
+  var n = Math.round(Number(out.count));
+  if (!isFinite(n) || n < 0) throw new Error("no usable count");
+  var conf = /^(high|medium|low)$/.test(out.confidence) ? out.confidence : "low";
+  return { count: n, confidence: conf, stacks: (out.stacks || []).map(Number), note: String(out.note || "").slice(0, 200) };
+}
+
+function countSheet_(ss) {
+  var sh = ss.getSheetByName("Counts");
+  if (!sh) {
+    sh = ss.insertSheet("Counts");
+    sh.getRange(1, 1, 1, COUNT_HEADER.length).setValues([COUNT_HEADER]).setFontWeight("bold");
+    sh.setFrozenRows(1);
+    sh.getRange("N1").setValue("One row per 'Count from photo' in the scan app (v27+). G is what the AI counted; J is the quantity the person actually submitted. When G and J differ, the AI was wrong (or the person changed it).");
+  }
+  return sh;
+}
+
+/** POST { type:"count", images:[b64...], item, station, job, employee } */
+function handleCount_(ss, data) {
+  var props = PropertiesService.getScriptProperties();
+  var key = props.getProperty("ANTHROPIC_API_KEY");
+  if (!key) return { ok: false, error: "Count from photo is not switched on." };
+  var images = (data.images || []).filter(function (s) { return typeof s === "string" && s.length > 100; });
+  if (!images.length) return { ok: false, error: "No photo received." };
+  var item = COUNT_ITEMS.indexOf(String(data.item || "").toLowerCase()) >= 0 ? String(data.item).toLowerCase() : "items";
+  var model = props.getProperty("COUNT_MODEL") || "claude-opus-5-5";
+  var started = Date.now();
+  var result = null, err = null;
+  try {
+    var res = UrlFetchApp.fetch("https://api.anthropic.com/v1/messages", {
+      method: "post",
+      contentType: "application/json",
+      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-beta": "server-side-fallback-2026-07-01" },
+      payload: JSON.stringify(buildCountRequest_(images, item, model, props.getProperty("COUNT_EFFORT"))),
+      muteHttpExceptions: true
+    });
+    var body = JSON.parse(res.getContentText());
+    if (res.getResponseCode() !== 200) throw new Error((body.error && body.error.message) || ("HTTP " + res.getResponseCode()));
+    result = parseCountResponse_(body);
+  } catch (e) { err = String((e && e.message) || e).slice(0, 200); }
+  var secs = Math.round((Date.now() - started) / 100) / 10;
+  var id = "C" + Date.now().toString(36).toUpperCase() + Math.floor(Math.random() * 1296).toString(36).toUpperCase();
+  countSheet_(ss).appendRow([id, new Date(), fbClean_(data.employee, 80), fbClean_(data.station, 60), fbClean_(data.job, 40), item,
+    result ? result.count : "", result ? result.confidence : "error", result ? result.note : err, "", secs, model]);
+  if (!result) return { ok: false, id: id, error: "Couldn't count this photo. Count by hand.", detail: err, v: 32 };
+  return { ok: true, id: id, count: result.count, confidence: result.confidence, stacks: result.stacks, note: result.note, v: 32 };
+}
+
+/** POST { type:"count_used", id, qty } — the quantity submitted after a count. */
+function handleCountUsed_(ss, data) {
+  var id = String(data.id || "");
+  var qty = Number(data.qty);
+  if (!/^C[0-9A-Z]+$/.test(id) || !isFinite(qty)) return { ok: false, error: "bad request" };
+  var sh = ss.getSheetByName("Counts");
+  if (!sh || sh.getLastRow() < 2) return { ok: false, error: "not found" };
+  var ids = sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues();
+  for (var i = ids.length - 1; i >= 0; i--) {
+    if (String(ids[i][0]) === id) { sh.getRange(i + 2, 10).setValue(qty); return { ok: true, v: 32 }; }
+  }
+  return { ok: false, error: "not found" };
 }

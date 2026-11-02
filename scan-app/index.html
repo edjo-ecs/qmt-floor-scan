@@ -175,6 +175,16 @@ var __Html5QrcodeLibrary__;(()=>{var t={449:function(t,e,r){!function(t){"use st
   .modal .row2 .btn { margin: 0; flex: 1; }
   .modal .merr { color: #ff9d87; font-size: 14px; min-height: 1.2em; margin-top: 8px; }
 
+  /* v27: Count from photo */
+  .count-btn { background: var(--ink-2); color: var(--orange); border: 1px solid var(--orange); }
+  .count-num { font-size: 64px; font-weight: 800; text-align: center; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: 4px 0; }
+  .count-num.low { color: var(--muted); }
+  .count-conf { text-align: center; font-size: 13px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; }
+  .count-conf.high { color: var(--green); } .count-conf.medium { color: #E8B23A; } .count-conf.low { color: #ff9d87; }
+  .count-note { text-align: center; color: var(--paper); font-size: 15px; line-height: 1.4; margin: 10px 0 4px; }
+  .tips { margin: 6px 0 0 18px; color: var(--muted); font-size: 14px; line-height: 1.6; }
+  .tips b { color: var(--paper); }
+
   @media (prefers-reduced-motion: no-preference) {
     .fade { animation: fade .18s ease-out; }
     @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
@@ -184,7 +194,7 @@ var __Html5QrcodeLibrary__;(()=>{var t={449:function(t,e,r){!function(t){"use st
 <body>
 <div id="app">
   <header>
-    <div class="brand">QMT <span>FLOOR SCAN</span> <small style="color:#4a4d54;font-weight:600;letter-spacing:0">v26</small></div>
+    <div class="brand">QMT <span>FLOOR SCAN</span> <small style="color:#4a4d54;font-weight:600;letter-spacing:0">v27</small></div>
     <div class="head-right">
       <div id="net">READY</div>
       <button id="fbBtn" title="Report a problem or idea">&#9873;</button>
@@ -228,7 +238,7 @@ const BUILT_IN_API = "https://script.google.com/macros/s/AKfycbzfENikUcV-2mjQeTD
 
 let API_URL = null;
 let STATIONS = FALLBACK_STATIONS;
-const state = { station: null, job: null, emp: null, qty: "" };
+const state = { station: null, job: null, emp: null, qty: "", countId: null };
 
 const $ = id => document.getElementById(id);
 const stepEl = $("step");
@@ -655,6 +665,7 @@ async function connectApi(){
       store.set("qmt_stations", JSON.stringify(data.stations));
     }
     if (Array.isArray(data.roster)) store.set("qmt_roster", JSON.stringify(data.roster));
+    store.set("qmt_count_on", data.countFromPhoto ? "1" : "");   // v27
     const shareLink = location.origin + location.pathname + "#" + url;
     msg.innerHTML =
       '<div class="ok-box"><b>Connected.</b> ' + STATIONS.length + ' stations loaded from the Sheet.<br><br>' +
@@ -680,6 +691,7 @@ async function refreshStations(){
       store.set("qmt_stations", JSON.stringify(data.stations));
     }
     if (data.ok && Array.isArray(data.roster)) store.set("qmt_roster", JSON.stringify(data.roster));
+    if (data.ok) store.set("qmt_count_on", data.countFromPhoto ? "1" : "");   // v27: backend v32+ with a key
   } catch(e){}
 }
 
@@ -949,10 +961,12 @@ function showQtyStep(){
     '<div class="step-title">Step <b>3 of 3</b> \u2014 How many?</div>' +
     '<div id="qtyDisplay" class="zero">0</div>' +
     '<div class="keypad" id="pad"></div>' +
+    (countOn() ? '<button class="btn count-btn" id="countBtn">&#128247; Count from photo</button>' : '') +
     '<button class="btn btn-green" id="submit" disabled>Submit scan</button>' +
     '<button class="btn btn-ghost" id="back">Back</button>' +
     '</div>';
-  const keys = ["1","2","3","4","5","6","7","8","9","\u232B","0","CLR"];
+  if ($("countBtn")) $("countBtn").onclick = openCount;
+  const keys =["1","2","3","4","5","6","7","8","9","\u232B","0","CLR"];
   const pad = $("pad");
   keys.forEach(k => {
     const b = document.createElement("button");
@@ -973,7 +987,7 @@ function showQtyStep(){
     renderTicket();
   }
   $("submit").onclick = submitScan;
-  $("back").onclick = () => { state.job = null; renderTicket(); showScanStep(); };
+  $("back").onclick = () => { state.job = null; state.countId = null; renderTicket(); showScanStep(); };
   updateQty();
 }
 
@@ -1031,6 +1045,7 @@ async function submitScan(){
   let body = null, queued = false;
   try { body = await postRow(row); }
   catch(e){ queueRow(row); queued = true; }
+  if (state.countId){ sendCountUsed(state.countId, row.qty); state.countId = null; }   // v27
   if (body && body.valid === false){ showRejected(row, body.reason); return; }
   showDone(row, queued, body);
 }
@@ -1072,15 +1087,128 @@ function showDone(row, queued, body){
 }
 
 function resetScan(keepStation){
-  state.job = null; state.qty = "";     // employee stays signed in
+  state.job = null; state.qty = ""; state.countId = null;     // employee stays signed in
   if (!keepStation) state.station = null;
   renderTicket();
   if (keepStation && state.station) showScanStep();
   else showStationStep();
 }
 
+/* ---------- v27: Count from photo ----------
+   On the "How many?" step: photograph the stack, the backend asks Claude to
+   count it, and the number is offered for the person to check. They can
+   take it, retake the photo, or type their own; the quantity actually
+   submitted is reported back (count_used) so the Counts tab shows how often
+   the AI was right. Shown only when the backend says it is switched on. */
+const COUNT_ITEMS = [["books","Books"],["covers","Covers"],["boxes","Boxes"],["rolls","Rolls"],["packages","Packages"],["other","Other"]];
+function countOn(){ return store.get("qmt_count_on") === "1"; }
+
+function openCount(){
+  closeFeedback();
+  let item = store.get("qmt_count_item") || "books";
+  const bg = document.createElement("div");
+  bg.className = "modal-bg"; bg.id = "fbModal";   // shares the modal plumbing (Escape, closeFeedback)
+  bg.innerHTML =
+    '<div class="modal" role="dialog" aria-modal="true" id="countBody">' +
+    '<h2>Count from photo</h2>' +
+    '<label>What are you counting?</label><div class="seg" id="cItems" style="flex-wrap:wrap"></div>' +
+    '<ul class="tips"><li><b>One stack</b> per photo</li><li>Straight on, the <b>whole stack</b> in the frame</li><li>Good light, no hands or glare</li></ul>' +
+    '<div class="merr" id="cErr"></div>' +
+    '<div class="row2"><button class="btn btn-ghost" id="cCancel">Cancel</button><button class="btn btn-primary" id="cShoot">&#128247; Take photo</button></div>' +
+    '<input type="file" id="countIn" accept="image/*" capture="environment" style="display:none">' +
+    '</div>';
+  bg.addEventListener("click", e => { if (e.target === bg) closeFeedback(); });
+  document.body.appendChild(bg);
+  const seg = $("cItems");
+  COUNT_ITEMS.forEach(([k, label]) => {
+    const b = document.createElement("button");
+    b.textContent = label; b.style.minWidth = "30%";
+    b.classList.toggle("on", k === item);
+    b.onclick = () => { item = k; store.set("qmt_count_item", k); seg.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b)); };
+    seg.appendChild(b);
+  });
+  $("cCancel").onclick = closeFeedback;
+  $("cShoot").onclick = () => $("countIn").click();
+  $("countIn").onchange = e => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (f) runCount(f, item);
+  };
+}
+
+/* The photo as three JPEGs: the whole frame, then its top and bottom halves
+   (overlapping a little) at higher detail, so thin edges stay countable. */
+async function countImages(file){
+  let src;
+  try { src = await createImageBitmap(file, { imageOrientation: "from-image" }); }
+  catch(e){ src = await createImageBitmap(file); }
+  const W = src.width, H = src.height, MAX = 1568;
+  const cut = (sx, sy, sw, sh) => {
+    const s = Math.min(1, MAX / Math.max(sw, sh));
+    const c = document.createElement("canvas");
+    c.width = Math.round(sw * s); c.height = Math.round(sh * s);
+    c.getContext("2d").drawImage(src, sx, sy, sw, sh, 0, 0, c.width, c.height);
+    return c.toDataURL("image/jpeg", 0.85).split(",")[1];
+  };
+  const tall = H >= W;   // split along the long side
+  const out = [cut(0, 0, W, H)];
+  if (tall){ out.push(cut(0, 0, W, Math.round(H * 0.55))); out.push(cut(0, Math.round(H * 0.45), W, H - Math.round(H * 0.45))); }
+  else { out.push(cut(0, 0, Math.round(W * 0.55), H)); out.push(cut(Math.round(W * 0.45), 0, W - Math.round(W * 0.45), H)); }
+  if (src.close) src.close();
+  return out;
+}
+
+async function runCount(file, item){
+  const body = $("countBody");
+  if (!body) return;
+  body.innerHTML = '<h2>Counting…</h2><p>This takes about 20–40 seconds. Keep the app open.</p>';
+  let r = null;
+  try {
+    const images = await countImages(file);
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 120000);
+    const res = await fetch(API_URL, {
+      method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, signal: ctl.signal,
+      body: JSON.stringify({ type: "count", images: images, item: item, station: state.station || "", job: state.job || "", employee: state.emp || "" })
+    });
+    clearTimeout(timer);
+    r = await res.json();
+  } catch(e){ r = { ok: false, error: "Couldn't reach the counter (no signal?). Count by hand." }; }
+  if (!$("countBody")) return;   // closed while counting
+  if (!r || !r.ok){
+    body.innerHTML = '<h2>No count</h2><p>' + esc((r && r.error) || "Something went wrong. Count by hand.") + '</p>' +
+      '<div class="row2"><button class="btn btn-ghost" id="cClose">Count by hand</button><button class="btn btn-primary" id="cRetry">Retake</button></div>';
+    $("cClose").onclick = closeFeedback;
+    $("cRetry").onclick = openCount;
+    return;
+  }
+  const sure = r.confidence !== "low";
+  body.innerHTML =
+    '<h2>Count from photo</h2>' +
+    '<div class="count-num' + (sure ? "" : " low") + '">' + r.count + '</div>' +
+    '<div class="count-conf ' + r.confidence + '">' + (r.confidence === "high" ? "Sure" : r.confidence === "medium" ? "Fairly sure — check it" : "Not sure") + '</div>' +
+    (r.note ? '<div class="count-note">' + esc(r.note) + '</div>' : '') +
+    (sure ? '' : '<p style="text-align:center;margin-top:8px">Retake with one stack, straight on — or count by hand.</p>') +
+    '<button class="btn ' + (sure ? "btn-green" : "btn-ghost") + '" id="cUse">Use ' + r.count + '</button>' +
+    '<div class="row2"><button class="btn btn-ghost" id="cHand">Count by hand</button><button class="btn btn-primary" id="cRetry">Retake</button></div>';
+  $("cUse").onclick = () => {
+    state.qty = String(Math.min(r.count, 999999));
+    state.countId = r.id;
+    closeFeedback();
+    showQtyStep();   // keypad shows the number; the person can still change it before Submit
+  };
+  $("cHand").onclick = () => { state.countId = r.id; closeFeedback(); };   // logged as what they type instead
+  $("cRetry").onclick = openCount;
+}
+
+function sendCountUsed(id, qty){
+  if (!API_URL) return;
+  fetch(API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ type: "count_used", id: id, qty: qty }) }).catch(() => {});
+}
+
 /* ---------- v23: Report a problem or idea ---------- */
-const APP_VERSION = "v26";
+const APP_VERSION = "v27";
 function openFeedback(){
   closeFeedback();
   const bg = document.createElement("div");
