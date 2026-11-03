@@ -1,6 +1,14 @@
 /**
- * QMT Floor Scan — Google Apps Script backend (v32: count from photo)
+ * QMT Floor Scan — Google Apps Script backend (v33: repeat scans count once)
  * NOTHING TO EDIT IN THIS FILE. Paste it as-is over the old code.
+ *
+ * NEW IN v33 (2026-11-03, over v32 — SCORING CHANGES):
+ *   - REPEAT SCANS COUNT ONCE. When the same people scan the same job at the same
+ *     station with the same quantity again (within REPEAT_LOOKBACK_DAYS), only the
+ *     first scan earns points, units and rate. Before this, a job scanned twice
+ *     paid twice (Box 10/29, Quality Control 11/2). Repeats still show as a
+ *     "repeat" system flag in the coaching report. A different quantity is treated
+ *     as a separate batch and still counts. Nectar "scanned that day" is unchanged.
  *
  * NEW IN v32 (2026-11-02, over v31 — scoring unchanged):
  *   - COUNT FROM PHOTO. On the "How many?" step the scan app (v27+) can send a
@@ -197,6 +205,9 @@ var RECONCILE_DAYS = 7;
 // NOT clear the cache: mid-shift they arrive every few seconds, which kept the
 // cache permanently empty (first live hour, 2026-10-21: ~17 s per request).
 var BOARD_CACHE_SECS = 45;
+// v33: a repeat scan (same job, station, quantity and people) earns nothing if
+// the first one was within this many days. Longer gaps are treated as new work.
+var REPEAT_LOOKBACK_DAYS = 7;
 
 /**
  * Make sure every tab and settings cell exists (seeding them on first run).
@@ -756,6 +767,33 @@ function readScanBlock_(scans, startMs, endMs) {
   return { rows: scans.getRange(lo + 2, 1, hi - lo + 1, 8).getValues(), firstRow: lo + 2 };
 }
 
+/** v33: what makes two scans "the same work": job + station + quantity + the
+ *  same people (in any order, old typed names folded to roster names).
+ *  null when there is no job or no name, so nothing is ever matched on blanks. */
+function repeatKey_(r, canon) {
+  var job = String(r[2]).trim();
+  var people = String(r[3]).trim().split(PAIR_RE).map(function (s) { return s.trim(); }).filter(String)
+    .map(function (s) { return canon(s).toLowerCase(); }).sort();
+  if (!job || !people.length) return null;
+  return job + "|" + String(r[1]).trim().toLowerCase() + "|" + (Number(r[4]) || 0) + "|" + people.join("+");
+}
+
+/** v33: earliest timestamp of each repeatKey_ among the rows read. A scan
+ *  counts only if it is that earliest one; the Scans tab is not always in
+ *  time order (offline phones post late), so this does not trust row order.
+ *  Rejected scans earn nothing anyway, so they never count as "the first". */
+function firstScanTimes_(rows, canon) {
+  var first = {};
+  rows.forEach(function (r) {
+    if (String(r[6]).toLowerCase() === "rejected") return;
+    var ts = r[0] instanceof Date ? r[0] : new Date(r[0]);
+    if (isNaN(ts.getTime())) return;
+    var k = repeatKey_(r, canon);
+    if (k && !(first[k] <= ts.getTime())) first[k] = ts.getTime();
+  });
+  return first;
+}
+
 /** GET: station config for the scan app, or ?board=1 for the leaderboard. */
 function doGet(e) {
   var p = (e && e.parameter) || {};
@@ -857,7 +895,10 @@ function buildLeaderboard_(ss, weekOffset, period, fromStr, toStr) {
   var nw = nectarWindow_(period, weekStart, weekEnd, midnight, tz);
   var readStart = Math.min(weekStart.getTime(), teamWeekStart.getTime(), nw.startMs - 86400000);
   var readEnd = Math.max(weekEnd.getTime(), teamWeekEnd.getTime(), nw.endMs + 86400000);
-  var rows = readScanBlock_(scans, readStart, readEnd).rows;
+  // v33: reach back REPEAT_LOOKBACK_DAYS more, so a repeat of a scan made just
+  // before this window is still recognised as a repeat.
+  var rows = readScanBlock_(scans, readStart - REPEAT_LOOKBACK_DAYS * 86400000, readEnd).rows;
+  var firstAt = firstScanTimes_(rows, canon);
 
   if (rows.length) {
     rows.forEach(function (r) {
@@ -880,6 +921,22 @@ function buildLeaderboard_(ss, weekOffset, period, fromStr, toStr) {
       var dupKey = ts.getTime() + "|" + job + "|" + station.toLowerCase() + "|" + badgeField.toLowerCase();
       var misStatus = String(r[6]).toLowerCase();
       var isRejected = misStatus === "rejected";
+      // v33: the same people scanning the same job, station and quantity again
+      // (a second tap, or a scan from another phone) earn nothing the second time.
+      // Only the earliest scan counts; the repeat is flagged for the coaching report.
+      var rk = repeatKey_(r, canon);
+      if (!isRejected && rk && firstAt[rk] < ts.getTime()) {
+        if (seen[dupKey]) return;
+        seen[dupKey] = true;
+        badgeField.split(PAIR_RE).map(function (s) { return s.trim(); }).filter(String)
+          .forEach(function (person) {
+            person = canon(person);
+            var fk = person.toLowerCase();
+            if (!totals[fk]) totals[fk] = { badge: person, points: 0, scans: 0, units: 0, shiftEq: 0, dayEq: {}, stations: {}, manuals: [], days: {}, flags: { rejected: 0, notAtStep: 0, unmapped: 0, repeat: 0 } };
+            totals[fk].flags.repeat++;
+          });
+        return;
+      }
       // Team goal: books through Label and Ship this week (replays once, rejects skipped)
       if (pts.teamGoal > 0 && !isRejected &&
           station.toLowerCase() === "label and ship" &&
@@ -895,7 +952,7 @@ function buildLeaderboard_(ss, weekOffset, period, fromStr, toStr) {
           .forEach(function (person) {
             person = canon(person);
             var fk = person.toLowerCase();
-            if (!totals[fk]) totals[fk] = { badge: person, points: 0, scans: 0, units: 0, shiftEq: 0, dayEq: {}, stations: {}, manuals: [], days: {}, flags: { rejected: 0, notAtStep: 0, unmapped: 0 } };
+            if (!totals[fk]) totals[fk] = { badge: person, points: 0, scans: 0, units: 0, shiftEq: 0, dayEq: {}, stations: {}, manuals: [], days: {}, flags: { rejected: 0, notAtStep: 0, unmapped: 0, repeat: 0 } };
             if (misStatus === "rejected") totals[fk].flags.rejected++;
             else if (misStatus === "not_at_step") totals[fk].flags.notAtStep++;
             else totals[fk].flags.unmapped++;
@@ -927,7 +984,7 @@ function buildLeaderboard_(ss, weekOffset, period, fromStr, toStr) {
       people.forEach(function (badge) {
         badge = canon(badge);            // fold old typed names into roster names
         var key = badge.toLowerCase();   // "Ed" and "ed" are the same person
-        if (!totals[key]) totals[key] = { badge: badge, points: 0, scans: 0, units: 0, shiftEq: 0, dayEq: {}, stations: {}, manuals: [], days: {}, flags: { rejected: 0, notAtStep: 0, unmapped: 0 } };
+        if (!totals[key]) totals[key] = { badge: badge, points: 0, scans: 0, units: 0, shiftEq: 0, dayEq: {}, stations: {}, manuals: [], days: {}, flags: { rejected: 0, notAtStep: 0, unmapped: 0, repeat: 0 } };
         totals[key].points += p * share;
         totals[key].scans += 1;
         totals[key].units += qty * share;
@@ -967,7 +1024,7 @@ function buildLeaderboard_(ss, weekOffset, period, fromStr, toStr) {
         .forEach(function (person) {
           person = canon(person);
           var key = person.toLowerCase();
-          if (!totals[key]) totals[key] = { badge: person, points: 0, scans: 0, units: 0, shiftEq: 0, dayEq: {}, stations: {}, manuals: [], days: {}, flags: { rejected: 0, notAtStep: 0, unmapped: 0 } };
+          if (!totals[key]) totals[key] = { badge: person, points: 0, scans: 0, units: 0, shiftEq: 0, dayEq: {}, stations: {}, manuals: [], days: {}, flags: { rejected: 0, notAtStep: 0, unmapped: 0, repeat: 0 } };
           totals[key].shiftEq += eq;
           totals[key].days[Utilities.formatDate(d, tz, "yyyy-MM-dd")] = true;
           totals[key].manuals.push({ activity: activity, hours: hrs, approver: approver });
@@ -1105,7 +1162,7 @@ function buildLeaderboard_(ss, weekOffset, period, fromStr, toStr) {
       nectar: nectarFor(p.name.toLowerCase()),
       shift: p.shift || "",
       daysActive: 0, ratePerActiveDay: 0,
-      flags: { rejected: 0, notAtStep: 0, unmapped: 0 },
+      flags: { rejected: 0, notAtStep: 0, unmapped: 0, repeat: 0 },
       stations: [], manuals: []
     });
   });
@@ -1152,7 +1209,7 @@ function buildLeaderboard_(ss, weekOffset, period, fromStr, toStr) {
   return {
     ok: true,
     app: "qmt-floor-scan",
-    v: 32,
+    v: 33,
     dailyCapPct: Math.round(pts.dailyCap * 100),
     nectarWeek: nct.week,
     upcomingRates: upcomingRates,
@@ -1241,10 +1298,10 @@ function buildCoachingReport_(ss) {
   var declining = rated.filter(function (r) { return r.trendPct !== null && r.trendPct <= -25; })
     .sort(function (a, b) { return a.trendPct - b.trendPct; });
   var flagged = rows.filter(function (r) {
-    return (r.flags.notAtStep + r.flags.unmapped) >= 5 || r.flags.rejected >= 3;
+    return (r.flags.notAtStep + r.flags.unmapped) >= 5 || r.flags.rejected >= 3 || (r.flags.repeat || 0) >= 3;
   }).sort(function (a, b) {
-    return (b.flags.notAtStep + b.flags.unmapped + b.flags.rejected) -
-           (a.flags.notAtStep + a.flags.unmapped + a.flags.rejected);
+    return (b.flags.notAtStep + b.flags.unmapped + b.flags.rejected + (b.flags.repeat || 0)) -
+           (a.flags.notAtStep + a.flags.unmapped + a.flags.rejected + (a.flags.repeat || 0));
   });
 
   // Station health: average per-person station rate
@@ -1296,12 +1353,12 @@ function buildCoachingReport_(ss) {
     "<div style='color:#666'>Week of " + esc(last.week) + " · rate-per-active-day = output vs shift standard on days the person actually worked · manager-only, not shown on the floor TV</div>" +
     section("Coach first — lowest rate per active day", "Before coaching, check their Flags and Station sections: low often means system, not effort.", table(bottom)) +
     section("Declining — down 25%+ vs their own 3-week average", "The person to reach first is the one falling, not the one lowest.", table(declining)) +
-    section("System flags — scans blocked by racetrack/mapping, not effort", "not_at_step = racetrack behind · unmapped = station not mapped in Admin · rejected = duplicate step. High counts here mean fix the system before coaching the person.",
+    section("System flags — scans blocked by racetrack/mapping, not effort", "not_at_step = racetrack behind · unmapped = station not mapped in Admin · rejected = duplicate step · repeat = same job scanned again by the same people (no credit). High counts here mean fix the system before coaching the person.",
       flagged.length
         ? "<table style='border-collapse:collapse;font-size:14px'>" + flagged.map(function (r) {
             return "<tr><td style='padding:6px 10px'><b>" + esc(r.name) + "</b></td>" +
               "<td style='padding:6px 10px'>" + r.flags.notAtStep + " not-at-step · " +
-              r.flags.unmapped + " unmapped · " + r.flags.rejected + " rejected</td></tr>";
+              r.flags.unmapped + " unmapped · " + r.flags.rejected + " rejected · " + (r.flags.repeat || 0) + " repeat</td></tr>";
           }).join("") + "</table>"
         : "<div style='color:#666'>— none —</div>") +
     section("Station health — average rate per station", "A whole station under ~70% usually means the Target/shift is miscalibrated or the machine is struggling — fix the target, not the people.",
@@ -1356,7 +1413,7 @@ function handleImprovement_(ss, data) {
     var row = findImprovementRow_(sh, ref);
 
     if (data.type === "improvement") {
-      if (row) return { ok: true, already: true, v: 32 };
+      if (row) return { ok: true, already: true, v: 33 };
       var mins = Number(data.minutes) || 0;
       if (mins <= 0 || mins > 720) return { ok: false, error: "bad minutes" };
       var hours = Math.round((mins / 60) * 1000) / 1000;   // v22: 3 decimals (2 min = 0.033 hr)
@@ -1369,12 +1426,12 @@ function handleImprovement_(ss, data) {
       sh.appendRow([d, String(data.name || "").trim(), activity, hours,
                     String(data.approver || "").trim(), ref]);
       bumpScansRev_();   // v28: credits change the board too
-      return { ok: true, v: 32 };
+      return { ok: true, v: 33 };
     }
 
     if (data.type === "improvement_undo") {
       if (row) { sh.deleteRow(row); bumpScansRev_(); }
-      return { ok: true, removed: !!row, v: 32 };
+      return { ok: true, removed: !!row, v: 33 };
     }
 
     return { ok: false, error: "unknown type" };
@@ -1424,7 +1481,7 @@ function scanWindow_(ss, p) {
       }
     });
   }
-  return { ok: true, v: 32, count: count, stations: Object.keys(stations) };
+  return { ok: true, v: 33, count: count, stations: Object.keys(stations) };
 }
 
 /* =====================================================================
@@ -1839,7 +1896,7 @@ function rosterView_(ss) {
     });
   }
   var pass = PropertiesService.getScriptProperties().getProperty("ROSTER_PASSCODE");
-  return { ok: true, app: "qmt-floor-scan", v: 32, editable: !!pass, shifts: ROSTER_SHIFTS, people: people };
+  return { ok: true, app: "qmt-floor-scan", v: 33, editable: !!pass, shifts: ROSTER_SHIFTS, people: people };
 }
 
 /** POST { type:"roster", passcode, by, action, name, shift, nicknames } */
@@ -1988,7 +2045,7 @@ function handleFeedback_(ss, data) {
     fbClean_(data.from, 60), message, fbClean_(data.station, 60), fbClean_(data.job, 40), fbClean_(data.device, 120),
     "New", "", "", ""]);
   bumpScansRev_();   // v30: the board's open-report count changes
-  return { ok: true, id: id, v: 32 };
+  return { ok: true, id: id, v: 33 };
 }
 
 function feedbackAuth_(data) {
@@ -2028,7 +2085,7 @@ function feedbackList_(ss, data) {
     });
   }
   items.sort(function (a, b) { return b.whenMs - a.whenMs; });
-  return { ok: true, v: 32, statuses: FEEDBACK_STATUSES, items: items };
+  return { ok: true, v: 33, statuses: FEEDBACK_STATUSES, items: items };
 }
 
 /** POST { type:"feedback_decide", passcode, by, id, status, note } */
@@ -2231,8 +2288,8 @@ function handleCount_(ss, data) {
   var id = "C" + Date.now().toString(36).toUpperCase() + Math.floor(Math.random() * 1296).toString(36).toUpperCase();
   countSheet_(ss).appendRow([id, new Date(), fbClean_(data.employee, 80), fbClean_(data.station, 60), fbClean_(data.job, 40), item,
     result ? result.count : "", result ? result.confidence : "error", result ? result.note : err, "", secs, model]);
-  if (!result) return { ok: false, id: id, error: "Couldn't count this photo. Count by hand.", detail: err, v: 32 };
-  return { ok: true, id: id, count: result.count, confidence: result.confidence, stacks: result.stacks, note: result.note, v: 32 };
+  if (!result) return { ok: false, id: id, error: "Couldn't count this photo. Count by hand.", detail: err, v: 33 };
+  return { ok: true, id: id, count: result.count, confidence: result.confidence, stacks: result.stacks, note: result.note, v: 33 };
 }
 
 /** POST { type:"count_used", id, qty } — the quantity submitted after a count. */
@@ -2244,7 +2301,7 @@ function handleCountUsed_(ss, data) {
   if (!sh || sh.getLastRow() < 2) return { ok: false, error: "not found" };
   var ids = sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues();
   for (var i = ids.length - 1; i >= 0; i--) {
-    if (String(ids[i][0]) === id) { sh.getRange(i + 2, 10).setValue(qty); return { ok: true, v: 32 }; }
+    if (String(ids[i][0]) === id) { sh.getRange(i + 2, 10).setValue(qty); return { ok: true, v: 33 }; }
   }
   return { ok: false, error: "not found" };
 }

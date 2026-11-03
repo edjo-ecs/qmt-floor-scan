@@ -51,7 +51,7 @@ Script web-app URL: `https://script.google.com/macros/s/AKfycbzfENikUcV-2mjQeTDq
 
 ## Scoring (buildLeaderboard_)
 - Rate = Σ(output ÷ target) ÷ hours-worked-in-shifts. Output = qty, or qty×pages for "pages"
-  targets, or 1 per scan for "jobs" targets. Pairs ("A+B") split 50/50. Replays deduped.
+  targets, or 1 per scan for "jobs" targets. Pairs ("A+B") split 50/50. Replays deduped. v33: a repeat (same job, station, qty and people within 7 days) earns nothing; it shows as a "repeat" flag.
 - Hours worked come from the Public Schedule (green = here, orange = late/left early count as the
   shift's paid hours; absent/blank count nothing). Fallback: workdays divisor (E3).
 - Daily cap (E10): one shift-day's scan credit is limited to cap% of a shift, scaled to that day's hours.
