@@ -27,7 +27,7 @@
   .brand span { color: var(--orange); }
   .weekline { font-size: clamp(13px, 1.6vw, 20px); color: var(--muted); font-weight: 700; letter-spacing: 1px; }
   .verline { font-size: clamp(10px, 1vw, 13px); color: #5a5e66; font-weight: 700; letter-spacing: 2px; margin-top: 4px; }
-  .weekbox { display: flex; align-items: center; gap: 10px; }
+  .weekbox { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; max-width: 100%; }   /* v24: wrap instead of running off the screen */
   .weeksel {
     background: var(--ink-2); color: var(--paper); border: 1px solid var(--rule);
     border-radius: 8px; font-size: clamp(13px, 1.5vw, 19px); font-weight: 700;
@@ -35,6 +35,11 @@
   }
   input[type="date"].weeksel { letter-spacing: 0; color-scheme: dark; }
   #customWrap { display: inline-flex; gap: 8px; align-items: center; }
+  /* v24: Update button — choices wait until it is pressed */
+  #updateBtn { width: auto; min-height: 0; margin-top: 0; background: var(--ink-2); color: var(--paper);
+               border: 1px solid var(--rule); border-radius: 8px; font-size: clamp(13px, 1.5vw, 19px); }
+  #updateBtn.pending { background: var(--gold); color: var(--ink); border-color: var(--gold); }
+  #updateBtn:disabled { opacity: .6; cursor: wait; }
   .weekline b { color: var(--paper); }
 
   /* podium */
@@ -178,7 +183,6 @@
       <span id="customWrap" style="display:none">
         <input type="date" id="fromDate" class="weeksel">
         <input type="date" id="toDate" class="weeksel">
-        <button id="applyRange" class="weeksel">Go</button>
       </span>
       <select id="viewSel" class="weeksel" style="display:none">
         <option value="board">Standings</option>
@@ -186,6 +190,7 @@
         <option value="details">Details</option>
         <option value="team" id="teamOpt" hidden>Team goal</option>
       </select>
+      <button id="updateBtn" class="weeksel" title="Load the week, day or dates you picked">Update</button>
       <div class="weekline" id="weekline">Loading&#8230;</div>
     </div>
   </header>
@@ -212,6 +217,8 @@ let currentPeriod = "week"; // "week" | "day"
 let viewMode = "team";      // default screen: the team goal (falls back to standings)
 let viewShift = "all";      // "all" | "day" | "night"
 let lastData = null;
+let pending = false;        // v24: a week/day/date choice is waiting for Update
+let reqSeq = 0;             // v24: only the newest request may draw the board
 
 function setupScreen(msg){
   document.getElementById("board").innerHTML =
@@ -233,12 +240,14 @@ function fmtPts(p){ return (Math.round(p * 100) / 100).toLocaleString(); }
 
 async function refresh(){
   if (!API_URL) return;
+  const my = ++reqSeq;
   try {
     const q = (currentWeek === "custom" && customFrom && customTo)
       ? "?board=1&from=" + customFrom + "&to=" + customTo
       : "?board=1&week=" + currentWeek + "&period=" + currentPeriod;
     const res = await fetch(API_URL + q);
     const data = await res.json();
+    if (my !== reqSeq) return;   // v24: a newer request was sent meanwhile — it draws the board
     if (!data.ok || data.app !== "qmt-floor-scan") throw new Error("bad response");
     // Old deployment detector: the v2 script always includes a rows array.
     // If it's missing, the URL is still serving the pre-leaderboard code.
@@ -253,11 +262,49 @@ async function refresh(){
     }
     render(data);
   } catch(e){
+    if (my !== reqSeq) return;
     // keep last good board on transient errors; only show setup if we've never rendered
     if (!document.querySelector(".podium") && !document.querySelector("table")){
       setupScreen("Couldn\u2019t reach the script. Check the URL and that the deployment allows Anyone.");
     }
+  } finally {
+    if (my === reqSeq) setLoading(false);
   }
+}
+
+/* v24: the Update button. Changing the week, Daily/Weekly or the custom dates
+   no longer loads anything by itself (each load can take 20-30 s, and a slow
+   one used to land after a newer pick and put the old week back). Pick
+   everything, then press Update. Shift and Standings/Details still switch at
+   once: they only re-draw what is already loaded. */
+function setPending(on){
+  pending = on;
+  const b = document.getElementById("updateBtn");
+  b.classList.toggle("pending", on);
+  if (!b.disabled) b.textContent = on ? "Update ●" : "Update";
+}
+function setLoading(on){
+  const b = document.getElementById("updateBtn");
+  b.disabled = on;
+  b.textContent = on ? "Loading…" : (pending ? "Update ●" : "Update");
+}
+function applyChoices(){
+  const per = document.getElementById("periodSel");
+  const sel = document.getElementById("weekSel");
+  currentPeriod = per.value === "day" ? "day" : "week";
+  if (sel.value === "custom"){
+    const f = document.getElementById("fromDate").value;
+    const t = document.getElementById("toDate").value;
+    if (!f || !t){ document.getElementById("weekline").innerHTML = "<b>Pick both dates, then Update</b>"; return; }
+    customFrom = f; customTo = t; currentWeek = "custom";
+  } else if (currentPeriod === "day"){
+    currentWeek = 0;
+  } else {
+    currentWeek = parseInt(sel.value, 10) || 0;
+  }
+  setPending(false);
+  setLoading(true);
+  refresh();
 }
 
 /* v17: "Former employee" in the Names tab's Shift column = no zero line on the board.
@@ -282,7 +329,7 @@ function render(data){
   if (Array.isArray(data.rows)) data.rows = data.rows.filter(r => !isFormerIdle(r));
   lastData = data;
   document.getElementById("verline").textContent =
-    "page v23" + (data.v ? " \u00B7 script v" + data.v : "");
+    "page v24" + (data.v ? " \u00B7 script v" + data.v : "");
   const sel = document.getElementById("weekSel");
   const per = document.getElementById("periodSel");
   const det = document.getElementById("viewSel");
@@ -304,7 +351,7 @@ function render(data){
   const shiftOk = Number(data.v) >= 18 && (data.rows || []).some(r => r.shift);
   shiftSel.style.display = shiftOk ? "" : "none";
   if (shiftOk) shiftSel.value = viewShift;
-  if (v10){ per.value = currentPeriod; det.value = viewMode; }
+  if (v10){ if (!pending) per.value = currentPeriod; det.value = viewMode; }
   const customWrap = document.getElementById("customWrap");
   const isCustom = currentWeek === "custom";
   if (Array.isArray(data.weeks) && data.weeks.length && (currentPeriod === "week" || isCustom)){
@@ -323,14 +370,15 @@ function render(data){
       sel.appendChild(c);
       sel.dataset.built = want;
     }
-    sel.value = isCustom ? "custom" : String(data.weekOffset || 0);
-    sel.style.display = "";
-    customWrap.style.display = isCustom ? "" : "none";
+    if (!pending){
+      sel.value = isCustom ? "custom" : String(data.weekOffset || 0);
+      sel.style.display = "";
+      customWrap.style.display = isCustom ? "" : "none";
+    }
     document.getElementById("weekline").innerHTML =
       (isCustom && data.period === "custom") ? "<b>" + (data.label || "") + "</b>" : "";
   } else if (currentPeriod === "day"){
-    customWrap.style.display = "none";
-    sel.style.display = "none";
+    if (!pending){ customWrap.style.display = "none"; sel.style.display = "none"; }
     document.getElementById("weekline").innerHTML = "<b>" + (data.label || data.week || "Today") + "</b>";
   } else {
     sel.style.display = "none";
@@ -611,7 +659,7 @@ function openFeedback(){
     let ok = false;
     try {
       const res = await fetch(API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({ type: "feedback", app: "leaderboard", version: "page v18",
+        body: JSON.stringify({ type: "feedback", app: "leaderboard", version: "page v24",
           kind: bg.querySelector("#fbKind button.on").dataset.k, message: msg.slice(0, 1000), from: from,
           device: (navigator.userAgent.match(/\(([^)]+)\)/) || [, navigator.userAgent])[1].slice(0, 120) }) });
       const body = await res.json().catch(() => ({ ok: res.ok }));
@@ -636,30 +684,22 @@ document.addEventListener("keydown", e => { if (e.key === "Escape") closeFeedbac
     history.replaceState(null, "", location.pathname);
   }
   const sel = document.getElementById("weekSel");
+  // v24: these only stage a choice; the Update button loads it
   sel.addEventListener("change", () => {
-    if (sel.value === "custom"){
-      currentWeek = "custom";
-      document.getElementById("customWrap").style.display = "";
-      return;   // wait for dates + Go
-    }
-    currentWeek = parseInt(sel.value, 10) || 0;
-    document.getElementById("customWrap").style.display = "none";
-    refresh();
+    document.getElementById("customWrap").style.display = sel.value === "custom" ? "" : "none";
+    setPending(true);
   });
-  document.getElementById("applyRange").addEventListener("click", () => {
-    const f = document.getElementById("fromDate").value;
-    const t = document.getElementById("toDate").value;
-    if (!f || !t) return;
-    customFrom = f; customTo = t;
-    currentWeek = "custom";
-    refresh();
-  });
+  ["fromDate", "toDate"].forEach(id => document.getElementById(id).addEventListener("change", () => setPending(true)));
   const per = document.getElementById("periodSel");
   per.addEventListener("change", () => {
-    currentPeriod = per.value === "day" ? "day" : "week";
-    if (currentPeriod === "day") currentWeek = 0;
-    refresh();
+    const day = per.value === "day";
+    // show the week picker as soon as Weekly is picked (it has options once any week has loaded)
+    if (sel.options.length){ sel.style.display = day ? "none" : ""; }
+    if (day) document.getElementById("customWrap").style.display = "none";
+    else if (sel.value === "custom") document.getElementById("customWrap").style.display = "";
+    setPending(true);
   });
+  document.getElementById("updateBtn").addEventListener("click", applyChoices);
   const shiftSel = document.getElementById("shiftSel");
   shiftSel.addEventListener("change", () => {
     viewShift = shiftSel.value;

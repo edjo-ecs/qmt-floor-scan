@@ -31,7 +31,9 @@ http.createServer((req, res) => {
       return;
     }
     const out = api.doGet({ parameter: Object.fromEntries(url.searchParams) }).getContent();
-    res.writeHead(200, { "Content-Type": "application/json" }); res.end(out);
+    // SLOW_MS=4000 makes board loads slow like the real script (to test the Update button)
+    const wait = url.searchParams.get("board") ? Number(process.env.SLOW_MS || 0) : 0;
+    setTimeout(() => { res.writeHead(200, { "Content-Type": "application/json" }); res.end(out); }, wait);
     return;
   }
   if (url.pathname === "/names") {   // peek at the fake Names tab and log
