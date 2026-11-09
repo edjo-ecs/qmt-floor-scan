@@ -47,7 +47,7 @@ const board = JSON.parse(mock.load(src, env).doGet({ parameter: { board: "1", pe
 const row = name => board.rows.find(r => r.name === name || r.badge === name);
 const st = (r, s) => (r.stations || []).find(x => x.station === s) || {};
 
-check("board answers as v33", board.ok && board.v === 33);
+check("board answers as v33+", board.ok && board.v >= 33);
 let r = row("Test Boxer");
 check("pair's repeated 1,470 job counts once (735 each)", r && r.units === 735 && r.scans === 1, r && JSON.stringify({ units: r.units, scans: r.scans }));
 check("the repeat is flagged for the coaching report", r && r.flags.repeat === 1);

@@ -60,7 +60,11 @@
    cap of 100% (100 points); under 50% earns nothing. The old Scan Every Day
    award is gone. Week = the board's Mon-Sun week; rate = the board's own number
    (work vs. station targets in effect when scanned, prorated to scheduled
-   hours, 150%/day cap). Change the tiers here and nowhere else. */
+   hours, 150%/day cap). Change the tiers here and nowhere else.
+   Team goal bonus (Ed, 2026-11-09, script v34+): when the week's Label-and-Ship
+   goal is hit, everyone who scanned that week earns the bonus (Points E11,
+   25 by default) on top of their rate points; the script decides who:
+   people on the Team roster who scanned (v35); others are listed as skipped. */
 const TIERS = [100, 90, 80, 70, 60, 50].map(p => ({ min: p, pts: p }));
 const API = "https://script.google.com/macros/s/AKfycbzfENikUcV-2mjQeTDqovKEsX4ihj2WpgZTKB6L_HLxnHyUefxT-fPXw_AYNivnhZRbOg/exec";
 const $ = id => document.getElementById(id);
@@ -78,47 +82,85 @@ function dates(data){
 }
 
 function render(data){
+  const t = data.team || null;
+  // v34 script: when the week's team goal was hit, everyone who scanned earns the bonus
+  const bonus = (t && t.hit && t.bonusNames && t.bonusNames.length) ? (Number(t.bonus) || 0) : 0;
+  const bonusSet = new Set(bonus ? t.bonusNames : []);
+  const rateOf = {};
+  (data.rows || []).forEach(r => { rateOf[r.name] = r.rate; });
   const rows = (data.rows || [])
     .filter(r => !/former/i.test(r.shift || ""))
     .map(r => ({ name: r.name, rate: r.rate, pts: ptsFor(r.rate) }))
     .filter(r => r.pts > 0)
     .sort((a, b) => b.rate - a.rate);
+  // HR table: rate points plus the team bonus, one line per person
+  const hrMap = {};
+  rows.forEach(r => { hrMap[r.name] = { name: r.name, rate: r.rate, pts: r.pts, bonus: 0 }; });
+  bonusSet.forEach(n => {
+    if (!hrMap[n]) hrMap[n] = { name: n, rate: Number(rateOf[n]) || 0, pts: 0, bonus: 0 };
+    hrMap[n].bonus = bonus;
+  });
+  const hrRows = Object.values(hrMap).sort((a, b) => (b.pts + b.bonus) - (a.pts + a.bonus) || b.rate - a.rate);
   const d = dates(data);
-  const total = rows.reduce((s, r) => s + r.pts, 0);
+  const ratePts = rows.reduce((s, r) => s + r.pts, 0);
+  const bonusPts = bonus * bonusSet.size;
+  const total = ratePts + bonusPts;
   const tierNames = TIERS.map(t => ({ t, people: rows.filter(r => r.pts === t.pts).map(r => r.name).sort((a, b) => a.localeCompare(b)) }))
     .filter(g => g.people.length);
+  const bonusNames = Array.from(bonusSet).sort((a, b) => a.localeCompare(b));
   const rulesEn = "Everyone who reached 50% or more of their station targets for the week earns Nectar points on a graduated scale: " +
     "50% = 50 points, 60% = 60, 70% = 70, 80% = 80, 90% = 90, and 100% or more = 100 points (rounded down to the nearest 10%)" +
     ". Your percent is your scanned work against your station targets, for the hours you were scheduled.";
   const rulesEs = "Todos los que llegaron al 50% o más de las metas de su estación en la semana ganan puntos Nectar en escala: " +
     "50% = 50 puntos, 60% = 60, 70% = 70, 80% = 80, 90% = 90, y 100% o más = 100 puntos (redondeado hacia abajo al 10% más cercano)" +
     ". Tu porcentaje es tu trabajo escaneado comparado con las metas de tu estación, según las horas programadas.";
+  const nf = n => Number(n).toLocaleString("en-US");
+  const teamEn = t ? ("Team goal: " + nf(t.units) + " of " + nf(t.goal) + " books through Label and Ship (" + t.pct + "%).") : "";
+  const teamEs = t ? ("Meta del equipo: " + nf(t.units) + " de " + nf(t.goal) + " libros por Label and Ship (" + t.pct + "%).") : "";
+  const hitEn = bonus ? ("TEAM GOAL HIT: " + bonus + " bonus points for everyone who scanned this week" +
+    (t.nextGoal ? ". Next goal: " + nf(t.nextGoal) + " books." : ".")) : "";
+  const hitEs = bonus ? ("META DEL EQUIPO LOGRADA: " + bonus + " puntos extra para todos los que escanearon esta semana" +
+    (t.nextGoal ? ". Próxima meta: " + nf(t.nextGoal) + " libros." : ".")) : "";
 
   let html = "";
-  if (!rows.length) html += '<div class="note">Nobody reached 50% this week.</div>';
+  if (!rows.length && !bonus) html += '<div class="note">Nobody reached 50% this week.</div>';
 
   // For HR: who gets what, with the percent (the floor memo leaves percents off: points are not a ranking)
   html += '<div class="card hr-only"><h2>For Nectar entry (HR)</h2><div class="sub">' + esc(data.label) +
-    ' &middot; ' + rows.length + ' people &middot; ' + total + ' points total</div><table><tr><th>Name</th><th style="text-align:right">Week %</th><th style="text-align:right">Points</th></tr>' +
-    rows.map(r => '<tr><td>' + esc(r.name) + '</td><td class="n">' + r.rate.toFixed(1) + '%</td><td class="n">' + r.pts + '</td></tr>').join("") +
-    '<tr class="tot"><td>Total</td><td></td><td class="n">' + total + '</td></tr></table></div>';
+    ' &middot; ' + hrRows.length + ' people &middot; ' + total + ' points total' +
+    (bonus ? ' (' + ratePts + ' for rate + ' + bonusPts + ' team bonus)' : '') + '</div>' +
+    (t ? '<div class="sub">' + esc(teamEn) + (bonus ? ' <b>Goal hit</b>: ' + bonus + ' points each for the ' + bonusSet.size + ' people who scanned.' : (t.hit === false ? ' Goal not hit: no team bonus.' : '')) + '</div>' : '') +
+    ((bonus && t.bonusSkipped && t.bonusSkipped.length) ? '<div class="note">No team bonus for ' + t.bonusSkipped.map(esc).join(', ') +
+      ': scanned, but not on the Team roster (a shared Admin login, a badge number, or a new name). If one is a real person, add them on the Team roster page and reload.</div>' : '') +
+    '<table><tr><th>Name</th><th style="text-align:right">Week %</th><th style="text-align:right">Rate pts</th>' +
+    (bonus ? '<th style="text-align:right">Team bonus</th><th style="text-align:right">Total</th>' : '<th style="text-align:right">Points</th>') + '</tr>' +
+    hrRows.map(r => '<tr><td>' + esc(r.name) + '</td><td class="n">' + r.rate.toFixed(1) + '%</td><td class="n">' + r.pts + '</td>' +
+      (bonus ? '<td class="n">' + r.bonus + '</td><td class="n">' + (r.pts + r.bonus) + '</td>' : '') + '</tr>').join("") +
+    '<tr class="tot"><td>Total</td><td></td><td class="n">' + ratePts + '</td>' +
+    (bonus ? '<td class="n">' + bonusPts + '</td><td class="n">' + total + '</td>' : '') + '</tr></table></div>';
 
   // The memo for the board, English then Spanish
   const list = (label) => tierNames.map(g => '<h3>' + g.t.pts + ' ' + label + ' (' + g.t.min + '%+)</h3><ul class="tier">' +
     g.people.map(n => '<li>' + esc(n) + '</li>').join("") + '</ul>').join("");
+  const bonusList = (head) => bonus ? '<h3>' + esc(head) + '</h3><ul class="tier">' + bonusNames.map(n => '<li>' + esc(n) + '</li>').join("") + '</ul>' : '';
   html += '<div class="card memo">' +
     '<h1>NECTAR WINNERS &ndash; ' + esc(d.en) + '</h1>' +
     '<div class="rules">' + esc(rulesEn) + '</div>' + list("points") +
-    (data.team ? '<p class="rules">Team goal: ' + Number(data.team.units).toLocaleString() + ' of ' + Number(data.team.goal).toLocaleString() + ' books through Label and Ship (' + data.team.pct + '%).</p>' : '') +
+    (t ? '<p class="rules">' + esc(teamEn) + '</p>' : '') +
+    bonusList(hitEn) +
     '<div class="lang"><h1>GANADORES NECTAR &ndash; ' + esc(d.es) + '</h1>' +
     '<div class="rules">' + esc(rulesEs) + '</div>' + list("puntos") +
-    (data.team ? '<p class="rules">Meta del equipo: ' + Number(data.team.units).toLocaleString() + ' de ' + Number(data.team.goal).toLocaleString() + ' libros por Label and Ship (' + data.team.pct + '%).</p>' : '') +
+    (t ? '<p class="rules">' + esc(teamEs) + '</p>' : '') +
+    bonusList(hitEs) +
     '</div></div>';
   $("out").innerHTML = html;
 
   const txtList = (label) => tierNames.map(g => g.t.pts + " " + label + " (" + g.t.min + "%+):\n" + g.people.join("\n")).join("\n\n");
+  const txtBonus = (head) => bonus ? "\n\n" + head + ":\n" + bonusNames.join("\n") : "";
   memoText = "NECTAR WINNERS - " + d.en + "\n" + rulesEn + "\n\n" + txtList("points") +
-    "\n\nGANADORES NECTAR - " + d.es + "\n" + rulesEs + "\n\n" + txtList("puntos") + "\n";
+    (t ? "\n\n" + teamEn : "") + txtBonus(hitEn) +
+    "\n\nGANADORES NECTAR - " + d.es + "\n" + rulesEs + "\n\n" + txtList("puntos") +
+    (t ? "\n\n" + teamEs : "") + txtBonus(hitEs) + "\n";
 }
 
 async function load(week){

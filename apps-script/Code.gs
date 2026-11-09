@@ -1,6 +1,31 @@
 /**
- * QMT Floor Scan — Google Apps Script backend (v33: repeat scans count once)
+ * QMT Floor Scan — Google Apps Script backend (v35: team bonus for rostered people only)
  * NOTHING TO EDIT IN THIS FILE. Paste it as-is over the old code.
+ *
+ * NEW IN v35 (2026-11-09, over v34 — individual scoring unchanged):
+ *   - The team goal bonus goes only to people on the Team roster (Names tab,
+ *     column B) who scanned that week and are not "Former employee". Shared
+ *     Admin accounts (ENTOURAGE), bare badge numbers and logins nobody has added
+ *     as a nickname are left out, and listed in team.bonusSkipped so HR can add a
+ *     real new hire to the roster (the board picks them up on the next load).
+ *
+ * NEW IN v34 (2026-11-09, over v33 — individual scoring unchanged):
+ *   - TEAM GOAL ROLLS UP BY ITSELF. When a week ends, the first board request
+ *     after Monday 12:00 AM writes that week to a new "Team Goal Log" tab: the
+ *     goal, books through Label and Ship, and whether it was hit. If it was hit,
+ *     everyone who scanned that week earns the team bonus (Points E11, default
+ *     25 Nectar points) and the goal in Points E4 goes up to the next 1,000
+ *     above the books shipped (13,846 -> 14,000; 14,020 -> 15,000; 14,000 ->
+ *     15,000). Missed weeks keep the same goal.
+ *   - Past weeks show the goal that applied THAT week (from the log), not
+ *     today's E4, so raising the goal never rewrites an earlier week.
+ *   - The board's team object adds hit, bonus, nextGoal and, for a whole-week
+ *     board where the goal was hit, bonusNames (who earns the bonus). The
+ *     Nectar page adds the bonus; the TV shows it.
+ *   - E4 can still be typed by hand at any time; the roll-up only runs once per
+ *     week and never touches a week already in the log. To re-check last week,
+ *     put that week's goal back in E4 first, then delete its log row (the re-check
+ *     scores it against whatever E4 says).
  *
  * NEW IN v33 (2026-11-03, over v32 — SCORING CHANGES):
  *   - REPEAT SCANS COUNT ONCE. When the same people scan the same job at the same
@@ -208,6 +233,11 @@ var BOARD_CACHE_SECS = 45;
 // v33: a repeat scan (same job, station, quantity and people) earns nothing if
 // the first one was within this many days. Longer gaps are treated as new work.
 var REPEAT_LOOKBACK_DAYS = 7;
+// v34: the team goal rises to the next multiple of this when it is hit.
+var TEAM_GOAL_STEP = 1000;
+var TEAM_LOG_TAB = "Team Goal Log";
+var TEAM_LOG_HEADER = ["Week of (Monday)", "Goal", "Books shipped (Label and Ship)", "Goal hit?",
+                       "Bonus points each", "People earning bonus", "Next week's goal", "Logged", "Who earned the bonus"];
 
 /**
  * Make sure every tab and settings cell exists (seeding them on first run).
@@ -279,6 +309,11 @@ function ensureTabs_(light) {
     // v23: daily cap on rate
     points.getRange("D10").setValue("Daily rate cap, % of a shift per person (edit E10; 0 = no cap):").setFontWeight("bold");
     points.getRange("E10").setValue(150);
+  }
+  if (points && !String(points.getRange("D11").getValue())) {
+    // v34: Nectar bonus for everyone who scanned when the weekly team goal is hit
+    points.getRange("D11").setValue("Team goal bonus: Nectar points each when the week's goal is hit (edit E11):").setFontWeight("bold");
+    points.getRange("E11").setValue(25);
   }
   if (!points) {
     points = ss.insertSheet("Points");
@@ -511,6 +546,7 @@ function getPointsMap_(ss) {
   var teamGoal = 0;
   var shiftHours = 10;
   var dailyCap = 1.5;     // v23: default 150% of a shift per person per day
+  var teamBonus = 25;     // v34: Points E11
   if (sh) {
     var b = String(sh.getRange("E1").getValue() || "").toLowerCase();
     if (b.indexOf("100") !== -1) basis = "per 100 units";
@@ -518,6 +554,11 @@ function getPointsMap_(ss) {
     if (!isNaN(wd) && wd >= 1 && wd <= 7) workdays = Math.round(wd);
     var tg = Number(sh.getRange("E4").getValue());
     if (!isNaN(tg) && tg > 0) teamGoal = Math.round(tg);
+    var tbRaw = sh.getRange("E11").getValue();
+    if (String(tbRaw).trim() !== "") {
+      var tbN = Number(tbRaw);
+      if (!isNaN(tbN) && tbN >= 0) teamBonus = Math.round(tbN);
+    }
     var shh = Number(sh.getRange("E5").getValue());
     if (!isNaN(shh) && shh >= 1 && shh <= 24) shiftHours = shh;
     var capRaw = sh.getRange("E10").getValue();
@@ -564,7 +605,7 @@ function getPointsMap_(ss) {
     });
     Object.keys(rateChanges).forEach(function (k) { rateChanges[k].sort(function (a, b) { return a.at - b.at; }); });
   }
-  return { map: map, basis: basis, targets: targets, workdays: workdays, teamGoal: teamGoal, shiftHours: shiftHours, dailyCap: dailyCap, rateChanges: rateChanges };
+  return { map: map, basis: basis, targets: targets, workdays: workdays, teamGoal: teamGoal, teamBonus: teamBonus, shiftHours: shiftHours, dailyCap: dailyCap, rateChanges: rateChanges };
 }
 
 function getNamesMap_(ss) {
@@ -807,6 +848,7 @@ function doGet(e) {
     var period = (p.period === "day") ? "day" : "week";
     var from = String(p.from || "");
     var to = String(p.to || "");
+    rollTeamGoal_(ss);   // v34: once a week, log last week's team goal and raise it if hit
     // v28: serve the finished board from the cache for BOARD_CACHE_SECS. The key
     // carries a revision that roster and credit changes bump (rare, and people want
     // to see those at once); new scans just wait out the cache.
@@ -888,6 +930,10 @@ function buildLeaderboard_(ss, weekOffset, period, fromStr, toStr) {
   var teamWeekStart = new Date(baseWeekStart.getTime() - weekOffset * 7 * 86400000);
   var teamWeekEnd = new Date(teamWeekStart.getTime() + 7 * 86400000);
   var teamSeen = {}, teamUnits = 0;
+  // v34: a week already in the Team Goal Log keeps the goal it had that week
+  var teamKey = Utilities.formatDate(teamWeekStart, tz, "yyyy-MM-dd");
+  var teamLogged = teamLog_(ss)[teamKey] || null;
+  if (teamLogged && teamLogged.goal > 0) pts.teamGoal = teamLogged.goal;
   var firstTs = null;   // tracer: what does a raw timestamp actually look like?
 
   // v28: read only the rows that can matter — this window, the team-goal week,
@@ -1200,16 +1246,30 @@ function buildLeaderboard_(ss, weekOffset, period, fromStr, toStr) {
   upcomingRates = upcomingRates.slice(0, 12);
   var team = null;
   if (pts.teamGoal > 0) {
+    var teamHit = teamLogged ? teamLogged.hit : (teamUnits >= pts.teamGoal);
     team = {
       goal: pts.teamGoal,
       units: Math.round(teamUnits),
-      pct: Math.round((teamUnits / pts.teamGoal) * 1000) / 10
+      pct: Math.round((teamUnits / pts.teamGoal) * 1000) / 10,
+      // v34
+      hit: teamHit,
+      bonus: teamLogged ? teamLogged.bonus : pts.teamBonus,
+      nextGoal: teamLogged ? teamLogged.next : (teamHit ? nextTeamGoal_(teamUnits) : pts.teamGoal),
+      weekOf: teamKey,
+      logged: !!teamLogged
     };
+    // Who earns the bonus: everyone who scanned that week (not former employees).
+    // Only on a whole-week board, where the rows ARE that week.
+    if (teamHit && period === "week") {
+      var tb = teamBonusNames_(list, roster);   // v35: roster members only
+      team.bonusNames = tb.names;
+      team.bonusSkipped = tb.skipped;
+    }
   }
   return {
     ok: true,
     app: "qmt-floor-scan",
-    v: 33,
+    v: 35,
     dailyCapPct: Math.round(pts.dailyCap * 100),
     nectarWeek: nct.week,
     upcomingRates: upcomingRates,
@@ -1413,7 +1473,7 @@ function handleImprovement_(ss, data) {
     var row = findImprovementRow_(sh, ref);
 
     if (data.type === "improvement") {
-      if (row) return { ok: true, already: true, v: 33 };
+      if (row) return { ok: true, already: true, v: 35 };
       var mins = Number(data.minutes) || 0;
       if (mins <= 0 || mins > 720) return { ok: false, error: "bad minutes" };
       var hours = Math.round((mins / 60) * 1000) / 1000;   // v22: 3 decimals (2 min = 0.033 hr)
@@ -1426,12 +1486,12 @@ function handleImprovement_(ss, data) {
       sh.appendRow([d, String(data.name || "").trim(), activity, hours,
                     String(data.approver || "").trim(), ref]);
       bumpScansRev_();   // v28: credits change the board too
-      return { ok: true, v: 33 };
+      return { ok: true, v: 35 };
     }
 
     if (data.type === "improvement_undo") {
       if (row) { sh.deleteRow(row); bumpScansRev_(); }
-      return { ok: true, removed: !!row, v: 33 };
+      return { ok: true, removed: !!row, v: 35 };
     }
 
     return { ok: false, error: "unknown type" };
@@ -1481,7 +1541,7 @@ function scanWindow_(ss, p) {
       }
     });
   }
-  return { ok: true, v: 33, count: count, stations: Object.keys(stations) };
+  return { ok: true, v: 35, count: count, stations: Object.keys(stations) };
 }
 
 /* =====================================================================
@@ -1896,7 +1956,7 @@ function rosterView_(ss) {
     });
   }
   var pass = PropertiesService.getScriptProperties().getProperty("ROSTER_PASSCODE");
-  return { ok: true, app: "qmt-floor-scan", v: 33, editable: !!pass, shifts: ROSTER_SHIFTS, people: people };
+  return { ok: true, app: "qmt-floor-scan", v: 35, editable: !!pass, shifts: ROSTER_SHIFTS, people: people };
 }
 
 /** POST { type:"roster", passcode, by, action, name, shift, nicknames } */
@@ -2045,7 +2105,7 @@ function handleFeedback_(ss, data) {
     fbClean_(data.from, 60), message, fbClean_(data.station, 60), fbClean_(data.job, 40), fbClean_(data.device, 120),
     "New", "", "", ""]);
   bumpScansRev_();   // v30: the board's open-report count changes
-  return { ok: true, id: id, v: 33 };
+  return { ok: true, id: id, v: 35 };
 }
 
 function feedbackAuth_(data) {
@@ -2085,7 +2145,7 @@ function feedbackList_(ss, data) {
     });
   }
   items.sort(function (a, b) { return b.whenMs - a.whenMs; });
-  return { ok: true, v: 33, statuses: FEEDBACK_STATUSES, items: items };
+  return { ok: true, v: 35, statuses: FEEDBACK_STATUSES, items: items };
 }
 
 /** POST { type:"feedback_decide", passcode, by, id, status, note } */
@@ -2288,8 +2348,8 @@ function handleCount_(ss, data) {
   var id = "C" + Date.now().toString(36).toUpperCase() + Math.floor(Math.random() * 1296).toString(36).toUpperCase();
   countSheet_(ss).appendRow([id, new Date(), fbClean_(data.employee, 80), fbClean_(data.station, 60), fbClean_(data.job, 40), item,
     result ? result.count : "", result ? result.confidence : "error", result ? result.note : err, "", secs, model]);
-  if (!result) return { ok: false, id: id, error: "Couldn't count this photo. Count by hand.", detail: err, v: 33 };
-  return { ok: true, id: id, count: result.count, confidence: result.confidence, stacks: result.stacks, note: result.note, v: 33 };
+  if (!result) return { ok: false, id: id, error: "Couldn't count this photo. Count by hand.", detail: err, v: 35 };
+  return { ok: true, id: id, count: result.count, confidence: result.confidence, stacks: result.stacks, note: result.note, v: 35 };
 }
 
 /** POST { type:"count_used", id, qty } — the quantity submitted after a count. */
@@ -2301,7 +2361,134 @@ function handleCountUsed_(ss, data) {
   if (!sh || sh.getLastRow() < 2) return { ok: false, error: "not found" };
   var ids = sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues();
   for (var i = ids.length - 1; i >= 0; i--) {
-    if (String(ids[i][0]) === id) { sh.getRange(i + 2, 10).setValue(qty); return { ok: true, v: 33 }; }
+    if (String(ids[i][0]) === id) { sh.getRange(i + 2, 10).setValue(qty); return { ok: true, v: 35 }; }
   }
   return { ok: false, error: "not found" };
+}
+
+
+/* ===================== v34 — Team goal roll-up ===================== */
+
+/** The weekly goal after a hit: the next multiple of TEAM_GOAL_STEP strictly
+ *  above what was shipped (13,846 -> 14,000; 14,000 -> 15,000). */
+function nextTeamGoal_(units) {
+  return (Math.floor((Number(units) || 0) / TEAM_GOAL_STEP) + 1) * TEAM_GOAL_STEP;
+}
+
+/** Who earns the team bonus on a whole-week board: everyone who scanned that
+ *  week AND is on the Team roster (Names col B), except "Former employee".
+ *  v35: anyone who scanned but is not on the roster (a shared Admin account,
+ *  a bare badge number, a login not yet added as a nickname) is "skipped". */
+function teamBonusNames_(list, roster) {
+  var onRoster = {};
+  (roster || []).forEach(function (p) { onRoster[String(p.name).trim().toLowerCase()] = true; });
+  var names = [], skipped = [];
+  (list || []).forEach(function (r) {
+    if (!(r.scans > 0) || /former/i.test(r.shift || "")) return;
+    var known = onRoster[String(r.name).trim().toLowerCase()] || onRoster[String(r.badge).trim().toLowerCase()];
+    (known ? names : skipped).push(r.name);
+  });
+  var byName = function (a, b) { return a.localeCompare(b); };
+  return { names: names.sort(byName), skipped: skipped.sort(byName) };
+}
+
+function teamLogSheet_(ss) {
+  var sh = ss.getSheetByName(TEAM_LOG_TAB);
+  if (!sh) {
+    sh = ss.insertSheet(TEAM_LOG_TAB);
+    sh.getRange(1, 1, 1, TEAM_LOG_HEADER.length).setValues([TEAM_LOG_HEADER]).setFontWeight("bold");
+    sh.getRange("K1").setValue("Written by the script once a week (first board load after Monday 12:00 AM). " +
+      "Goal hit = everyone who scanned that week earns the bonus, and Points E4 goes up to the next 1,000. " +
+      "Edit E4 by hand any time. To re-check last week: put that week's goal back in E4, then delete its row.");
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+/** Team Goal Log rows keyed by the week's Monday ("yyyy-MM-dd", sheet tz). */
+function teamLog_(ss) {
+  var out = {};
+  var sh = ss.getSheetByName(TEAM_LOG_TAB);
+  if (!sh || sh.getLastRow() < 2) return out;
+  var tz = ss.getSpreadsheetTimeZone() || "America/New_York";
+  sh.getRange(2, 1, sh.getLastRow() - 1, 7).getValues().forEach(function (r) {
+    var key = "";
+    if (r[0] instanceof Date && !isNaN(r[0].getTime())) {
+      key = Utilities.formatDate(r[0], tz, "yyyy-MM-dd");
+    } else {
+      var m = String(r[0]).trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/) ;
+      var m2 = String(r[0]).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (m) key = m[1] + "-" + ("0" + m[2]).slice(-2) + "-" + ("0" + m[3]).slice(-2);
+      else if (m2) key = m2[3] + "-" + ("0" + m2[1]).slice(-2) + "-" + ("0" + m2[2]).slice(-2);
+    }
+    var goal = Number(r[1]);
+    if (!key || !(goal > 0)) return;
+    var hit = /^y/i.test(String(r[3]).trim());
+    var next = Number(r[6]);
+    out[key] = {
+      goal: Math.round(goal),
+      units: Number(r[2]) || 0,
+      hit: hit,
+      bonus: hit ? (Number(r[4]) || 0) : 0,
+      next: next > 0 ? Math.round(next) : goal
+    };
+  });
+  return out;
+}
+
+/** Monday of LAST week ("yyyy-MM-dd", sheet tz) — the week the roll-up closes. */
+function lastWeekKey_(ss) {
+  var tz = ss.getSpreadsheetTimeZone() || "America/New_York";
+  var now = new Date();
+  var dow = Number(Utilities.formatDate(now, tz, "u"));
+  if (isNaN(dow) || dow < 1 || dow > 7) {
+    dow = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 }[Utilities.formatDate(now, tz, "EEE")] || 1;
+  }
+  var hms = Utilities.formatDate(now, tz, "HH:mm:ss").split(":");
+  var msSinceMidnight = ((Number(hms[0]) * 3600) + (Number(hms[1]) * 60) + Number(hms[2])) * 1000 + now.getMilliseconds();
+  var midnight = new Date(now.getTime() - msSinceMidnight);
+  var lastMonday = new Date(midnight.getTime() - (dow - 1 + 7) * 86400000);
+  return Utilities.formatDate(lastMonday, tz, "yyyy-MM-dd");
+}
+
+/**
+ * Once a week: log last week's team goal result and, if it was hit, raise the
+ * goal in Points E4. Called on every board request; costs one cache read
+ * except on the first request after Monday 12:00 AM. Never breaks the board.
+ */
+function rollTeamGoal_(ss) {
+  try {
+    var key = lastWeekKey_(ss);
+    var cache = null;
+    try { cache = CacheService.getScriptCache(); if (cache.get("teamroll_" + key)) return; } catch (e) { cache = null; }
+    var done = function (secs) { if (cache) { try { cache.put("teamroll_" + key, "1", secs); } catch (e2) {} } };
+    if (teamLog_(ss)[key]) { done(21600); return; }
+    if (!(getPointsMap_(ss).teamGoal > 0)) { done(600); return; }   // no goal set: nothing to roll
+    var lock = LockService.getScriptLock();
+    if (!lock.tryLock(5000)) return;                                // another request is rolling it
+    try {
+      if (teamLog_(ss)[key]) { done(21600); return; }
+      var pts = getPointsMap_(ss);
+      var b = buildLeaderboard_(ss, 1, "week", "", "");
+      var t = b && b.team;
+      if (!t || t.weekOf !== key) return;
+      var names = t.hit ? (t.bonusNames || []) : [];   // v35: roster members only
+      var sh = teamLogSheet_(ss);
+      sh.appendRow([new Date(b.weekStartISO), t.goal, t.units, t.hit ? "Yes" : "No",
+                    t.hit ? t.bonus : 0, names.length, t.nextGoal, new Date(), names.join(", ")]);
+      var row = sh.getLastRow();
+      sh.getRange(row, 1).setNumberFormat("m/d/yyyy");
+      sh.getRange(row, 8).setNumberFormat("m/d/yyyy h:mm AM/PM");
+      // Raise the goal only upward (someone may already have typed a higher one).
+      if (t.hit && t.nextGoal > pts.teamGoal) {
+        ss.getSheetByName("Points").getRange("E4").setValue(t.nextGoal);
+      }
+      bumpScansRev_();
+      done(21600);
+    } finally {
+      lock.releaseLock();
+    }
+  } catch (err) {
+    // The board must still load if the roll-up fails; the next request retries.
+  }
 }

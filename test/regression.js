@@ -31,12 +31,14 @@ const SCENARIOS = [
   { label: "app config",       q: {} }
 ];
 const VOLATILE = new Set(["v", "updated", "firstTs", "feedbackOpen"]);   // feedbackOpen: added in v30, checked in feedback.js
+// v34 added these to the team object (checked in team-goal.js); goal/units/pct still compare.
+const TEAM_V34 = new Set(["hit", "bonus", "nextGoal", "weekOf", "logged", "bonusNames", "bonusSkipped"]);
 
 function stable(obj) {
   if (Array.isArray(obj)) return obj.map(stable);
   if (obj && typeof obj === "object") {
     const o = {};
-    Object.keys(obj).sort().forEach(k => { if (!VOLATILE.has(k)) o[k] = stable(obj[k]); });
+    Object.keys(obj).sort().forEach(k => { if (!VOLATILE.has(k) && !TEAM_V34.has(k)) o[k] = stable(obj[k]); });
     return o;
   }
   return obj;

@@ -14,6 +14,10 @@ const repo = path.join(__dirname, "..");
 const src = fs.readFileSync(path.join(repo, "apps-script", "Code.gs"), "utf8");
 const fx = fixture.build();
 global.__RealDate = Date;   // gas-mock checks dates against this; keep real time here (no pinning)
+// v34: PIN_NOW=1 freezes "now" at the fixture's Mon 10/19 3:30 PM so last week has data;
+// TEAM_GOAL=6000 sets Points E4 (6,000 = last week's goal is hit, 9,000 = missed).
+if (process.env.PIN_NOW) mock.pinDate(fixture.NOW_MS);
+if (process.env.TEAM_GOAL) fx.ss.getSheetByName("Points").getRange("E4").setValue(Number(process.env.TEAM_GOAL));
 const env = mock.makeEnv({ active: fx.ss, books: fx.books, props: { ROSTER_PASSCODE: "test pass", FEEDBACK_PASSCODE: "test pass" } });
 const PORT = 8787;
 

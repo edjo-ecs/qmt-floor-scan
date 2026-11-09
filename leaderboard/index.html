@@ -109,6 +109,10 @@
                  height: clamp(30px, 5.5vh, 54px); background: var(--rule); }
   .tier.reached { color: var(--green); }
   .tier.reached::after { background: var(--green); }
+  .team-hit { display: inline-block; margin-top: 1vh; padding: 1vh 2vw; border-radius: 12px; background: rgba(47,168,79,.15);
+              border: 2px solid var(--green); color: var(--green); font-weight: 800; font-size: clamp(16px, 2.2vw, 30px); }
+  .team-next { margin-top: 1.2vh; color: var(--muted); font-weight: 700; font-size: clamp(13px, 1.6vw, 22px); }
+  .team-next b { color: var(--paper); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 
   /* details view */
   .det-person { border-bottom: 1px solid #24272d; padding: 1.6vh 4px; }
@@ -329,7 +333,7 @@ function render(data){
   if (Array.isArray(data.rows)) data.rows = data.rows.filter(r => !isFormerIdle(r));
   lastData = data;
   document.getElementById("verline").textContent =
-    "page v24" + (data.v ? " \u00B7 script v" + data.v : "");
+    "page v25" + (data.v ? " \u00B7 script v" + data.v : "");
   const sel = document.getElementById("weekSel");
   const per = document.getElementById("periodSel");
   const det = document.getElementById("viewSel");
@@ -537,7 +541,8 @@ function renderTeam(data){
     return;
   }
   const pct = t.pct;
-  const hit = pct >= 100;
+  const hit = (typeof t.hit === "boolean") ? t.hit : pct >= 100;   // script v34 says; older scripts: 100%
+  const bonus = (typeof t.bonus === "number") ? t.bonus : 25;
   const scaleMax = 125;                          // bar runs 0–125%
   const fillPct = Math.max(0, Math.min(pct / scaleMax * 100, 100));
   const tiers = [100, 110, 120];
@@ -553,7 +558,11 @@ function renderTeam(data){
       '<div class="team-bar-wrap">' + marks +
         '<div class="team-bar"><div class="team-fill' + (hit ? " hit" : "") + '" style="width:' + fillPct + '%"></div></div>' +
       '</div>' +
-      '<div class="rate-note">Hit the tiers together \u2014 100% \u00B7 110% \u00B7 120% \u2014 bonuses at each level</div>' +
+      (hit
+        ? '<div class="team-hit">GOAL HIT! Everyone who scanned this week earns ' + bonus + ' Nectar points</div>' +
+          (t.nextGoal ? '<div class="team-next">Next week\u2019s goal: <b>' + Number(t.nextGoal).toLocaleString() + '</b> books</div>' : '')
+        : '<div class="team-next">Hit 100% together and everyone who scans this week earns <b>' + bonus + '</b> Nectar points. ' +
+          'Every time the goal is hit, it goes up to the next 1,000.</div>') +
     '</div>';
 }
 
@@ -659,7 +668,7 @@ function openFeedback(){
     let ok = false;
     try {
       const res = await fetch(API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({ type: "feedback", app: "leaderboard", version: "page v24",
+        body: JSON.stringify({ type: "feedback", app: "leaderboard", version: "page v25",
           kind: bg.querySelector("#fbKind button.on").dataset.k, message: msg.slice(0, 1000), from: from,
           device: (navigator.userAgent.match(/\(([^)]+)\)/) || [, navigator.userAgent])[1].slice(0, 120) }) });
       const body = await res.json().catch(() => ({ ok: res.ok }));

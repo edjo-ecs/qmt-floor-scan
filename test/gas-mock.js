@@ -187,7 +187,7 @@ function makeEnv({ active, books, props, misResponse }) {
       DigestAlgorithm: { MD5: "MD5" }
     },
     CacheService: { getScriptCache() { return cache; } },
-    LockService: { getScriptLock() { return { waitLock() {}, releaseLock() {} }; } },
+    LockService: { getScriptLock() { return { waitLock() {}, tryLock() { return true; }, releaseLock() {} }; } },
     PropertiesService: { getScriptProperties() { return { getProperty(k) { return props[k] === undefined ? null : props[k]; } }; } },
     UrlFetchApp: {
       fetch(url, opts) {
@@ -211,7 +211,8 @@ function makeEnv({ active, books, props, misResponse }) {
 function load(code, env) {
   const names = ["SpreadsheetApp", "Utilities", "CacheService", "LockService", "PropertiesService", "UrlFetchApp", "ContentService", "Session", "MailApp"];
   const fn = new Function(...names, code +
-    "\nreturn { doGet: doGet, doPost: doPost, reconcilePending_: reconcilePending_, buildLeaderboard_: buildLeaderboard_, ensureTabs_: ensureTabs_ };");
+    "\nreturn { doGet: doGet, doPost: doPost, reconcilePending_: reconcilePending_, buildLeaderboard_: buildLeaderboard_, ensureTabs_: ensureTabs_," +
+    " nextTeamGoal_: typeof nextTeamGoal_ === \"function\" ? nextTeamGoal_ : null };");
   return fn(...names.map(n => env[n]));
 }
 
