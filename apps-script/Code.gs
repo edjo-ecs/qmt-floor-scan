@@ -1,6 +1,14 @@
 /**
- * QMT Floor Scan — Google Apps Script backend (v35: team bonus for rostered people only)
+ * QMT Floor Scan — Google Apps Script backend (v36: team bonus by level, 100/110/120%)
  * NOTHING TO EDIT IN THIS FILE. Paste it as-is over the old code.
+ *
+ * NEW IN v36 (2026-11-09, over v35 — individual scoring unchanged):
+ *   - The team bonus grows with how far past the goal the week ends: 100% = 25,
+ *     110% = 30, 120% = 40 Nectar points each (Points E11, E12, E13; seeded on
+ *     first run). The roll-up logs the bonus for the level reached. The board's
+ *     team object adds tiers [{pct, bonus}], and on a hit week bonus is the
+ *     earned level. The goal still rises to the next 1,000 after a hit (the TV
+ *     no longer says so).
  *
  * NEW IN v35 (2026-11-09, over v34 — individual scoring unchanged):
  *   - The team goal bonus goes only to people on the Team roster (Names tab,
@@ -315,6 +323,13 @@ function ensureTabs_(light) {
     points.getRange("D11").setValue("Team goal bonus: Nectar points each when the week's goal is hit (edit E11):").setFontWeight("bold");
     points.getRange("E11").setValue(25);
   }
+  if (points && !String(points.getRange("D12").getValue())) {
+    // v36: bigger team bonus at 110% and 120% of the goal
+    points.getRange("D12").setValue("Team goal bonus at 110% of the goal: Nectar points each (edit E12):").setFontWeight("bold");
+    points.getRange("E12").setValue(30);
+    points.getRange("D13").setValue("Team goal bonus at 120% of the goal: Nectar points each (edit E13):").setFontWeight("bold");
+    points.getRange("E13").setValue(40);
+  }
   if (!points) {
     points = ss.insertSheet("Points");
     points.getRange("A1:C1").setValues([["Station", "Points", "Target/shift"]]).setFontWeight("bold");
@@ -546,7 +561,15 @@ function getPointsMap_(ss) {
   var teamGoal = 0;
   var shiftHours = 10;
   var dailyCap = 1.5;     // v23: default 150% of a shift per person per day
-  var teamBonus = 25;     // v34: Points E11
+  var teamBonus = 25;     // v34: Points E11 (goal hit, 100%)
+  var teamBonus110 = 30;  // v36: Points E12
+  var teamBonus120 = 40;  // v36: Points E13
+  var cellNum = function (cell, dflt) {
+    var raw = sh.getRange(cell).getValue();
+    if (String(raw).trim() === "") return dflt;
+    var n = Number(raw);
+    return (!isNaN(n) && n >= 0) ? Math.round(n) : dflt;
+  };
   if (sh) {
     var b = String(sh.getRange("E1").getValue() || "").toLowerCase();
     if (b.indexOf("100") !== -1) basis = "per 100 units";
@@ -559,6 +582,8 @@ function getPointsMap_(ss) {
       var tbN = Number(tbRaw);
       if (!isNaN(tbN) && tbN >= 0) teamBonus = Math.round(tbN);
     }
+    teamBonus110 = cellNum("E12", teamBonus110);
+    teamBonus120 = cellNum("E13", teamBonus120);
     var shh = Number(sh.getRange("E5").getValue());
     if (!isNaN(shh) && shh >= 1 && shh <= 24) shiftHours = shh;
     var capRaw = sh.getRange("E10").getValue();
@@ -605,7 +630,9 @@ function getPointsMap_(ss) {
     });
     Object.keys(rateChanges).forEach(function (k) { rateChanges[k].sort(function (a, b) { return a.at - b.at; }); });
   }
-  return { map: map, basis: basis, targets: targets, workdays: workdays, teamGoal: teamGoal, teamBonus: teamBonus, shiftHours: shiftHours, dailyCap: dailyCap, rateChanges: rateChanges };
+  return { map: map, basis: basis, targets: targets, workdays: workdays, teamGoal: teamGoal, teamBonus: teamBonus,
+           teamTiers: [{ pct: 100, bonus: teamBonus }, { pct: 110, bonus: teamBonus110 }, { pct: 120, bonus: teamBonus120 }],
+           shiftHours: shiftHours, dailyCap: dailyCap, rateChanges: rateChanges };
 }
 
 function getNamesMap_(ss) {
@@ -1253,7 +1280,10 @@ function buildLeaderboard_(ss, weekOffset, period, fromStr, toStr) {
       pct: Math.round((teamUnits / pts.teamGoal) * 1000) / 10,
       // v34
       hit: teamHit,
-      bonus: teamLogged ? teamLogged.bonus : pts.teamBonus,
+      // v36: the bonus earned depends on the level reached (100/110/120%);
+      // before the goal is hit it is the 100% bonus, for the TV's "earns N".
+      bonus: teamLogged ? teamLogged.bonus : (teamHit ? teamTierBonus_(teamUnits, pts.teamGoal, pts.teamTiers) : pts.teamBonus),
+      tiers: pts.teamTiers,
       nextGoal: teamLogged ? teamLogged.next : (teamHit ? nextTeamGoal_(teamUnits) : pts.teamGoal),
       weekOf: teamKey,
       logged: !!teamLogged
@@ -1269,7 +1299,7 @@ function buildLeaderboard_(ss, weekOffset, period, fromStr, toStr) {
   return {
     ok: true,
     app: "qmt-floor-scan",
-    v: 35,
+    v: 36,
     dailyCapPct: Math.round(pts.dailyCap * 100),
     nectarWeek: nct.week,
     upcomingRates: upcomingRates,
@@ -1473,7 +1503,7 @@ function handleImprovement_(ss, data) {
     var row = findImprovementRow_(sh, ref);
 
     if (data.type === "improvement") {
-      if (row) return { ok: true, already: true, v: 35 };
+      if (row) return { ok: true, already: true, v: 36 };
       var mins = Number(data.minutes) || 0;
       if (mins <= 0 || mins > 720) return { ok: false, error: "bad minutes" };
       var hours = Math.round((mins / 60) * 1000) / 1000;   // v22: 3 decimals (2 min = 0.033 hr)
@@ -1486,12 +1516,12 @@ function handleImprovement_(ss, data) {
       sh.appendRow([d, String(data.name || "").trim(), activity, hours,
                     String(data.approver || "").trim(), ref]);
       bumpScansRev_();   // v28: credits change the board too
-      return { ok: true, v: 35 };
+      return { ok: true, v: 36 };
     }
 
     if (data.type === "improvement_undo") {
       if (row) { sh.deleteRow(row); bumpScansRev_(); }
-      return { ok: true, removed: !!row, v: 35 };
+      return { ok: true, removed: !!row, v: 36 };
     }
 
     return { ok: false, error: "unknown type" };
@@ -1541,7 +1571,7 @@ function scanWindow_(ss, p) {
       }
     });
   }
-  return { ok: true, v: 35, count: count, stations: Object.keys(stations) };
+  return { ok: true, v: 36, count: count, stations: Object.keys(stations) };
 }
 
 /* =====================================================================
@@ -1956,7 +1986,7 @@ function rosterView_(ss) {
     });
   }
   var pass = PropertiesService.getScriptProperties().getProperty("ROSTER_PASSCODE");
-  return { ok: true, app: "qmt-floor-scan", v: 35, editable: !!pass, shifts: ROSTER_SHIFTS, people: people };
+  return { ok: true, app: "qmt-floor-scan", v: 36, editable: !!pass, shifts: ROSTER_SHIFTS, people: people };
 }
 
 /** POST { type:"roster", passcode, by, action, name, shift, nicknames } */
@@ -2105,7 +2135,7 @@ function handleFeedback_(ss, data) {
     fbClean_(data.from, 60), message, fbClean_(data.station, 60), fbClean_(data.job, 40), fbClean_(data.device, 120),
     "New", "", "", ""]);
   bumpScansRev_();   // v30: the board's open-report count changes
-  return { ok: true, id: id, v: 35 };
+  return { ok: true, id: id, v: 36 };
 }
 
 function feedbackAuth_(data) {
@@ -2145,7 +2175,7 @@ function feedbackList_(ss, data) {
     });
   }
   items.sort(function (a, b) { return b.whenMs - a.whenMs; });
-  return { ok: true, v: 35, statuses: FEEDBACK_STATUSES, items: items };
+  return { ok: true, v: 36, statuses: FEEDBACK_STATUSES, items: items };
 }
 
 /** POST { type:"feedback_decide", passcode, by, id, status, note } */
@@ -2348,8 +2378,8 @@ function handleCount_(ss, data) {
   var id = "C" + Date.now().toString(36).toUpperCase() + Math.floor(Math.random() * 1296).toString(36).toUpperCase();
   countSheet_(ss).appendRow([id, new Date(), fbClean_(data.employee, 80), fbClean_(data.station, 60), fbClean_(data.job, 40), item,
     result ? result.count : "", result ? result.confidence : "error", result ? result.note : err, "", secs, model]);
-  if (!result) return { ok: false, id: id, error: "Couldn't count this photo. Count by hand.", detail: err, v: 35 };
-  return { ok: true, id: id, count: result.count, confidence: result.confidence, stacks: result.stacks, note: result.note, v: 35 };
+  if (!result) return { ok: false, id: id, error: "Couldn't count this photo. Count by hand.", detail: err, v: 36 };
+  return { ok: true, id: id, count: result.count, confidence: result.confidence, stacks: result.stacks, note: result.note, v: 36 };
 }
 
 /** POST { type:"count_used", id, qty } — the quantity submitted after a count. */
@@ -2361,7 +2391,7 @@ function handleCountUsed_(ss, data) {
   if (!sh || sh.getLastRow() < 2) return { ok: false, error: "not found" };
   var ids = sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues();
   for (var i = ids.length - 1; i >= 0; i--) {
-    if (String(ids[i][0]) === id) { sh.getRange(i + 2, 10).setValue(qty); return { ok: true, v: 35 }; }
+    if (String(ids[i][0]) === id) { sh.getRange(i + 2, 10).setValue(qty); return { ok: true, v: 36 }; }
   }
   return { ok: false, error: "not found" };
 }
@@ -2373,6 +2403,18 @@ function handleCountUsed_(ss, data) {
  *  above what was shipped (13,846 -> 14,000; 14,000 -> 15,000). */
 function nextTeamGoal_(units) {
   return (Math.floor((Number(units) || 0) / TEAM_GOAL_STEP) + 1) * TEAM_GOAL_STEP;
+}
+
+/** v36: Nectar points each for the highest level reached (tiers sorted by pct,
+ *  e.g. 100% = 25, 110% = 30, 120% = 40). Whole-number math, so 15,400 of
+ *  14,000 is exactly 110%. 0 if the goal was missed. */
+function teamTierBonus_(units, goal, tiers) {
+  var u = Number(units) || 0, g = Number(goal) || 0, bonus = 0;
+  if (!(g > 0)) return 0;
+  (tiers || []).forEach(function (t) {
+    if (u * 100 >= g * t.pct) bonus = t.bonus;
+  });
+  return bonus;
 }
 
 /** Who earns the team bonus on a whole-week board: everyone who scanned that
@@ -2398,7 +2440,7 @@ function teamLogSheet_(ss) {
     sh = ss.insertSheet(TEAM_LOG_TAB);
     sh.getRange(1, 1, 1, TEAM_LOG_HEADER.length).setValues([TEAM_LOG_HEADER]).setFontWeight("bold");
     sh.getRange("K1").setValue("Written by the script once a week (first board load after Monday 12:00 AM). " +
-      "Goal hit = everyone who scanned that week earns the bonus, and Points E4 goes up to the next 1,000. " +
+      "Goal hit = everyone who scanned that week earns the bonus (E11 at 100%, E12 at 110%, E13 at 120%), and Points E4 goes up to the next 1,000. " +
       "Edit E4 by hand any time. To re-check last week: put that week's goal back in E4, then delete its row.");
     sh.setFrozenRows(1);
   }

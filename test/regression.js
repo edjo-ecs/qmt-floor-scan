@@ -32,7 +32,7 @@ const SCENARIOS = [
 ];
 const VOLATILE = new Set(["v", "updated", "firstTs", "feedbackOpen"]);   // feedbackOpen: added in v30, checked in feedback.js
 // v34 added these to the team object (checked in team-goal.js); goal/units/pct still compare.
-const TEAM_V34 = new Set(["hit", "bonus", "nextGoal", "weekOf", "logged", "bonusNames", "bonusSkipped"]);
+const TEAM_V34 = new Set(["hit", "bonus", "nextGoal", "weekOf", "logged", "bonusNames", "bonusSkipped", "tiers"]);
 
 function stable(obj) {
   if (Array.isArray(obj)) return obj.map(stable);

@@ -333,7 +333,7 @@ function render(data){
   if (Array.isArray(data.rows)) data.rows = data.rows.filter(r => !isFormerIdle(r));
   lastData = data;
   document.getElementById("verline").textContent =
-    "page v25" + (data.v ? " \u00B7 script v" + data.v : "");
+    "page v26" + (data.v ? " \u00B7 script v" + data.v : "");
   const sel = document.getElementById("weekSel");
   const per = document.getElementById("periodSel");
   const det = document.getElementById("viewSel");
@@ -543,6 +543,11 @@ function renderTeam(data){
   const pct = t.pct;
   const hit = (typeof t.hit === "boolean") ? t.hit : pct >= 100;   // script v34 says; older scripts: 100%
   const bonus = (typeof t.bonus === "number") ? t.bonus : 25;
+  // v26: points each at 100/110/120% (script v36 sends tiers; older scripts: defaults)
+  const tierBonus = (p, dflt) => {
+    const hitTier = Array.isArray(t.tiers) ? t.tiers.find(x => x.pct === p) : null;
+    return hitTier && typeof hitTier.bonus === "number" ? hitTier.bonus : dflt;
+  };
   const scaleMax = 125;                          // bar runs 0–125%
   const fillPct = Math.max(0, Math.min(pct / scaleMax * 100, 100));
   const tiers = [100, 110, 120];
@@ -561,8 +566,8 @@ function renderTeam(data){
       (hit
         ? '<div class="team-hit">GOAL HIT! Everyone who scanned this week earns ' + bonus + ' Nectar points</div>' +
           (t.nextGoal ? '<div class="team-next">Next week\u2019s goal: <b>' + Number(t.nextGoal).toLocaleString() + '</b> books</div>' : '')
-        : '<div class="team-next">Hit 100% together and everyone who scans this week earns <b>' + bonus + '</b> Nectar points. ' +
-          'Every time the goal is hit, it goes up to the next 1,000.</div>') +
+        : '<div class="team-next">Hit 100% together and everyone who scans this week earns <b>' + tierBonus(100, bonus) + '</b> Nectar points. ' +
+          'Hit 110% for <b>' + tierBonus(110, 30) + '</b> each, or 120% for <b>' + tierBonus(120, 40) + '</b> each.</div>') +
     '</div>';
 }
 

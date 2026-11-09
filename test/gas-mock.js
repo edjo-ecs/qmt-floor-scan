@@ -212,7 +212,8 @@ function load(code, env) {
   const names = ["SpreadsheetApp", "Utilities", "CacheService", "LockService", "PropertiesService", "UrlFetchApp", "ContentService", "Session", "MailApp"];
   const fn = new Function(...names, code +
     "\nreturn { doGet: doGet, doPost: doPost, reconcilePending_: reconcilePending_, buildLeaderboard_: buildLeaderboard_, ensureTabs_: ensureTabs_," +
-    " nextTeamGoal_: typeof nextTeamGoal_ === \"function\" ? nextTeamGoal_ : null };");
+    " nextTeamGoal_: typeof nextTeamGoal_ === \"function\" ? nextTeamGoal_ : null," +
+    " teamTierBonus_: typeof teamTierBonus_ === \"function\" ? teamTierBonus_ : null };");
   return fn(...names.map(n => env[n]));
 }
 

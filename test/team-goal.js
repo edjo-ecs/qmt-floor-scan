@@ -39,7 +39,7 @@ const fns = mock.load(src, mock.makeEnv({ active: fixture.build().ss, books: {},
 // --- goal hit: 6,492 shipped against 6,000 ---
 let t = setup(6000);
 let now = t.board({ week: "0", period: "week" });
-check("board answers as v35", now.ok && now.v === 35);
+check("board answers as v36", now.ok && now.v === 36);
 let rows = t.log();
 check("last week written to the Team Goal Log", rows.length === 1, JSON.stringify(rows));
 const r = rows[0] || [];
@@ -89,6 +89,30 @@ check("missed week is logged as not hit, no bonus", rows.length === 1 && rows[0]
 check("missed week keeps the goal at 9,000", t.e4() === 9000 && rows[0][6] === 9000);
 last = t.board({ week: "1", period: "week" });
 check("missed week: hit false, no names", last.team.hit === false && !last.team.bonusNames);
+
+// --- v36: bigger bonus at 110% and 120% ---
+const TIERS = [{ pct: 100, bonus: 25 }, { pct: 110, bonus: 30 }, { pct: 120, bonus: 40 }];
+[[13999, 14000, 0], [14000, 14000, 25], [15399, 14000, 25], [15400, 14000, 30], [16799, 14000, 30], [16800, 14000, 40], [30000, 14000, 40]]
+  .forEach(([u, g, want]) => check(u.toLocaleString() + " of " + g.toLocaleString() + " earns " + want,
+    fns.teamTierBonus_(u, g, TIERS) === want, String(fns.teamTierBonus_(u, g, TIERS))));
+
+// 6,492 against 5,900 = 110.0% -> 30 each; against 5,400 = 120.2% -> 40 each
+[[5900, 30], [5400, 40]].forEach(([goal, want]) => {
+  const tt = setup(goal);
+  tt.board({ week: "0", period: "week" });
+  const lr = tt.log()[0] || [];
+  check("goal " + goal.toLocaleString() + ": log pays " + want + " each", lr[3] === "Yes" && lr[4] === want, JSON.stringify(lr.slice(0, 7)));
+  const lb = tt.board({ week: "1", period: "week" });
+  check("goal " + goal.toLocaleString() + ": board bonus " + want, lb.team.bonus === want, String(lb.team.bonus));
+});
+
+// E12 / E13 typed in the sheet win over the defaults
+t = setup(5400);
+t.fx.ss.getSheetByName("Points").getRange("E13").setValue(50);
+t.board({ week: "0", period: "week" });
+check("Points E13 = 50: 120% pays 50", (t.log()[0] || [])[4] === 50, JSON.stringify((t.log()[0] || []).slice(0, 7)));
+check("this week's board lists the tiers", JSON.stringify(t.board({ week: "0", period: "week" }).team.tiers) ===
+  JSON.stringify([{ pct: 100, bonus: 25 }, { pct: 110, bonus: 30 }, { pct: 120, bonus: 50 }]));
 
 // --- no goal set: nothing happens ---
 t = setup(0);
